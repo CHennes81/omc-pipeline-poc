@@ -30,3 +30,7 @@ __pycache__/
 
 # Virtualenv
 .venv/
+
+# Media files
+media/
+*.mp4
