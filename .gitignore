@@ -1,0 +1,32 @@
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+.yarn/
+.eslintcache
+.vscode/
+dist/
+build/
+coverage/
+logs/
+.env
+.env.*
+.direnv/
+.DS_Store
+
+# Backup and temporary files
+*.bak
+*.tmp
+*.swp
+*~
+temp/
+tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtualenv
+.venv/
