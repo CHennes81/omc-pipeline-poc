@@ -28,7 +28,7 @@ VALUES
     ('550e8400-e29b-41d4-a716-446655440102', '550e8400-e29b-41d4-a716-446655440002', '550e8400-e29b-41d4-a716-446655440000', 'PICTURE', '13967595_3840_2160_25fps.mp4', 'A001', 'CAM001', CURRENT_TIMESTAMP),
     ('550e8400-e29b-41d4-a716-446655440103', '550e8400-e29b-41d4-a716-446655440003', '550e8400-e29b-41d4-a716-446655440000', 'PICTURE', '14542855_3840_2160_60fps.mp4', 'A002', 'CAM002', CURRENT_TIMESTAMP),
     ('550e8400-e29b-41d4-a716-446655440104', '550e8400-e29b-41d4-a716-446655440004', '550e8400-e29b-41d4-a716-446655440000', 'PICTURE', '14646171_1920_1080_25fps.mp4', 'A002', 'CAM002', CURRENT_TIMESTAMP),
-    ('550e8400-e29b-41d4-a716-446655440105', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440000', 'PICTURE', '14663025_3840_2160_60fps.mp4', 'A003', 'CAM001', CURRENT_TIMESTAMP)
+    ('550e8400-e29b-41d4-a716-446655440105', '550e8400-e29b-41d4-a716-446655440005', '550e8400-e29b-41d4-a716-446655440000', 'PICTURE', '14663025_3840_2160_60fps.mp4', 'A003', 'CAM001', CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;
 
 -- Versions: Camera Originals
@@ -166,3 +166,32 @@ VALUES
     ('550e8400-e29b-41d4-a716-446655440001', 'ARCHIVED', '550e8400-e29b-41d4-a716-446655440602', 'Archive Operator', 'Archive Service', CURRENT_TIMESTAMP - INTERVAL '12 hours'),
     ('550e8400-e29b-41d4-a716-446655440002', 'ARCHIVED', '550e8400-e29b-41d4-a716-446655440602', 'Archive Operator', 'Archive Service', CURRENT_TIMESTAMP - INTERVAL '12 hours')
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- VERIFICATION QUERIES (run manually after seed to confirm integrity)
+-- ============================================================================
+
+-- Expected counts:
+-- SELECT 'productions' as table_name, COUNT(*) as count FROM productions;  -- Expected: 1
+-- SELECT 'shots' as table_name, COUNT(*) as count FROM shots;  -- Expected: 5
+-- SELECT 'assets' as table_name, COUNT(*) as count FROM assets;  -- Expected: 5
+-- SELECT 'versions' as table_name, COUNT(*) as count FROM versions;  -- Expected: 18 (5 camera + 5 hde + 5 dailies + 3 edit)
+-- SELECT 'version_lineage' as table_name, COUNT(*) as count FROM version_lineage;  -- Expected: 13
+-- SELECT 'events' as table_name, COUNT(*) as count FROM events;  -- Expected: 18 (5 capture + 5 hde + 5 dailies + 3 edit + 3 turnover + 2 archive)
+-- SELECT 'packages' as table_name, COUNT(*) as count FROM packages;  -- Expected: 2
+-- SELECT 'package_members' as table_name, COUNT(*) as count FROM package_members;  -- Expected: 5 (3 turnover + 2 archive)
+
+-- FK integrity checks (should return 0 rows if all FKs are valid):
+-- SELECT 'assets with invalid shot_id' as check_name, COUNT(*) as violations FROM assets a LEFT JOIN shots s ON a.shot_id = s.id WHERE s.id IS NULL;
+-- SELECT 'assets with invalid production_id' as check_name, COUNT(*) as violations FROM assets a LEFT JOIN productions p ON a.production_id = p.id WHERE p.id IS NULL;
+-- SELECT 'shots with invalid production_id' as check_name, COUNT(*) as violations FROM shots s LEFT JOIN productions p ON s.production_id = p.id WHERE p.id IS NULL;
+-- SELECT 'versions with invalid asset_id' as check_name, COUNT(*) as violations FROM versions v LEFT JOIN assets a ON v.asset_id = a.id WHERE a.id IS NULL;
+-- SELECT 'versions with invalid derived_from_version_id' as check_name, COUNT(*) as violations FROM versions v LEFT JOIN versions v2 ON v.derived_from_version_id = v2.id WHERE v.derived_from_version_id IS NOT NULL AND v2.id IS NULL;
+-- SELECT 'version_lineage with invalid derived_version_id' as check_name, COUNT(*) as violations FROM version_lineage vl LEFT JOIN versions v ON vl.derived_version_id = v.id WHERE v.id IS NULL;
+-- SELECT 'version_lineage with invalid source_version_id' as check_name, COUNT(*) as violations FROM version_lineage vl LEFT JOIN versions v ON vl.source_version_id = v.id WHERE v.id IS NULL;
+-- SELECT 'events with invalid shot_id' as check_name, COUNT(*) as violations FROM events e LEFT JOIN shots s ON e.shot_id = s.id WHERE s.id IS NULL;
+-- SELECT 'events with invalid version_id' as check_name, COUNT(*) as violations FROM events e LEFT JOIN versions v ON e.version_id = v.id WHERE e.version_id IS NOT NULL AND v.id IS NULL;
+-- SELECT 'events with invalid package_id' as check_name, COUNT(*) as violations FROM events e LEFT JOIN packages p ON e.package_id = p.id WHERE e.package_id IS NOT NULL AND p.id IS NULL;
+-- SELECT 'packages with invalid production_id' as check_name, COUNT(*) as violations FROM packages p LEFT JOIN productions pr ON p.production_id = pr.id WHERE pr.id IS NULL;
+-- SELECT 'package_members with invalid package_id' as check_name, COUNT(*) as violations FROM package_members pm LEFT JOIN packages p ON pm.package_id = p.id WHERE p.id IS NULL;
+-- SELECT 'package_members with invalid version_id' as check_name, COUNT(*) as violations FROM package_members pm LEFT JOIN versions v ON pm.version_id = v.id WHERE v.id IS NULL;

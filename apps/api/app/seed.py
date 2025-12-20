@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.database import engine
 
 
@@ -21,18 +22,18 @@ def load_seed_sql(db: Session, reset: bool = False) -> dict:
     with engine.connect() as conn:
         # If reset mode, truncate tables first
         if reset:
-            conn.execute("""
+            conn.execute(text("""
                 TRUNCATE TABLE events, package_members, packages,
                           version_lineage, versions, assets, shots, productions CASCADE
-            """)
+            """))
             conn.commit()
 
         # Execute seed SQL
-        conn.execute(seed_sql)
+        conn.execute(text(seed_sql))
         conn.commit()
 
     # Count shots loaded
-    result = db.execute("SELECT COUNT(*) FROM shots WHERE production_id = (SELECT id FROM productions WHERE code = 'EXFTR')")
+    result = db.execute(text("SELECT COUNT(*) FROM shots WHERE production_id = (SELECT id FROM productions WHERE code = 'EXFTR')"))
     shots_count = result.scalar() or 0
 
     return {

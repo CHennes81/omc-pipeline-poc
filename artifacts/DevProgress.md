@@ -169,3 +169,96 @@ Implemented complete Phase 1 skeleton for Production Lineage Concierge POC.
 
 **Files changed:** 30+ files created/modified
 **Lines of code:** ~3000+ (backend + frontend + database)
+
+---
+
+## 2025-12-19 – SQLAlchemy 2.x Fixes and Health Endpoint
+
+Fixed two runtime issues in the FastAPI backend.
+
+### SQLAlchemy 2.x Execute Fix
+
+**Issue:** `seed.load_seed_sql` was failing with "string is not executable" errors due to SQLAlchemy 2.x requiring explicit `text()` wrapper for raw SQL strings.
+
+**Fix:** Updated `apps/api/app/seed.py`:
+- Added `from sqlalchemy import text` import
+- Wrapped all raw SQL strings with `text()`:
+  - TRUNCATE statement (when reset=True)
+  - Seed SQL file contents
+  - COUNT query for shots_loaded
+
+**Files changed:**
+- `apps/api/app/seed.py` - Wrapped 3 SQL execute calls with `text()`
+
+**Result:** `POST /api/import/seed` now executes successfully without SQLAlchemy 2.x errors.
+
+### Health Endpoint Implementation
+
+**Issue:** `/health` endpoint existed but returned extra fields beyond the required `{"status": "ok"}`.
+
+**Fix:** Updated `apps/api/app/main.py`:
+- Simplified `/health` endpoint to return exactly `{"status": "ok"}`
+- Endpoint is mounted at app level (not under `/api` prefix), so final path is exactly `/health`
+
+**Files changed:**
+- `apps/api/app/main.py` - Simplified health check response
+
+**Result:** `GET /health` returns 200 with `{"status": "ok"}` at exactly `/health` path.
+
+---
+
+## 2025-12-19 – Seed Data FK Integrity Fix
+
+Fixed foreign key violation in seed data and performed full referential integrity validation.
+
+### Problem
+
+`POST /api/import/seed` was failing with:
+```
+psycopg2.errors.ForeignKeyViolation: insert/update on table "assets" violates FK constraint "assets_shot_id_fkey"
+DETAIL: Key (shot_id)=(550e8400-e29b-41d4-a716-446655440000) is not present in table "shots".
+```
+
+**Root cause:** Asset row with id `550e8400-e29b-41d4-a716-446655440105` had `shot_id` incorrectly set to production UUID `550e8400-e29b-41d4-a716-446655440000` instead of a valid shot UUID.
+
+### Fix
+
+**Corrected row:** Asset `550e8400-e29b-41d4-a716-446655440105`
+- **Before:** `shot_id = '550e8400-e29b-41d4-a716-446655440000'` (production UUID, wrong)
+- **After:** `shot_id = '550e8400-e29b-41d4-a716-446655440005'` (shot 013_015, correct)
+
+This asset now correctly references shot `550e8400-e29b-41d4-a716-446655440005` (shot_code: 013_015), maintaining the "one asset per shot" pattern.
+
+### Full Integrity Validation
+
+Performed systematic review of all FK relationships in seed data:
+
+**Validated relationships:**
+- ✅ shots → productions (5 shots, all reference production 0000)
+- ✅ assets → shots (5 assets, all reference valid shots 0001-0005)
+- ✅ assets → productions (5 assets, all reference production 0000)
+- ✅ versions → assets (18 versions, all reference valid assets 0101-0105)
+- ✅ versions → versions (derived_from: 13 references, all valid)
+- ✅ version_lineage → versions (13 edges, all derived/source references valid)
+- ✅ events → shots (18 events, all reference valid shots)
+- ✅ events → versions (18 events with version_id, all valid)
+- ✅ events → packages (5 events with package_id, all valid)
+- ✅ packages → productions (2 packages, both reference production 0000)
+- ✅ package_members → packages (5 members, all reference valid packages)
+- ✅ package_members → versions (5 members, all reference valid versions)
+
+**No other integrity issues found.** All FK relationships are valid.
+
+### Verification Queries
+
+Added verification queries for manual integrity checking:
+- `db/seed_verify.sql` - Standalone verification script with:
+  - Expected count queries for all tables
+  - FK integrity checks (should return 0 violations)
+- Comments in `db/seed.sql` - Inline verification queries as comments
+
+**Files changed:**
+- `db/seed.sql` - Fixed asset 0105 shot_id FK reference
+- `db/seed_verify.sql` - New verification script with count and FK checks
+
+**Result:** `POST /api/import/seed` now executes successfully without FK violations. All referential integrity confirmed.

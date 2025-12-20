@@ -26,11 +26,7 @@ app.include_router(routes.router, prefix="/api", tags=["api"])
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
-    return {
-        "status": "ok",
-        "version": "0.1.0",
-        "environment": settings.app_env
-    }
+    return {"status": "ok"}
 
 
 @app.get("/")
