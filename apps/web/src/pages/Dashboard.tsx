@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { api, Production, ShotSummary } from '../api/client';
+import { api } from '../api/client';
+import type { Production, ShotSummary } from '../api/client';
 
 export function Dashboard() {
   const [productions, setProductions] = useState<Production[]>([]);

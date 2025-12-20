@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { api, ShotDetail, Version, Event, LineageNode } from '../api/client';
+import { api } from '../api/client';
+import type { ShotDetail, Version, Event, LineageNode } from '../api/client';
 
 export function ShotDetailPage() {
   const { shotCode } = useParams<{ shotCode: string }>();

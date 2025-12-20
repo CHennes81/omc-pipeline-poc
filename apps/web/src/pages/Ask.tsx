@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { api, AskResponse } from '../api/client';
+import { api } from '../api/client';
+import type { AskResponse } from '../api/client';
 
 const TEMPLATE_QUESTIONS = [
   { template: 'latest_camera_original', question: 'What is the latest camera original for shot 011_021?' },

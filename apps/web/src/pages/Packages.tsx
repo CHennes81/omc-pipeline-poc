@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { api, Package } from '../api/client';
+import { api } from '../api/client';
+import type { Package } from '../api/client';
 
 export function PackagesPage() {
   const [packages, setPackages] = useState<Package[]>([]);

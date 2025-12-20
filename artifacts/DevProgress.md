@@ -262,3 +262,74 @@ Added verification queries for manual integrity checking:
 - `db/seed_verify.sql` - New verification script with count and FK checks
 
 **Result:** `POST /api/import/seed` now executes successfully without FK violations. All referential integrity confirmed.
+
+---
+
+## 2025-12-19 – Frontend Import Fix and npm Install Fix
+
+Fixed two issues preventing the frontend from running and npm install from completing.
+
+### Dashboard Import Error Fix
+
+**Problem:** Frontend showed blank white page with browser console error:
+```
+Uncaught SyntaxError: The requested module '/src/api/client.ts' does not provide an export named 'Production'
+```
+
+**Root cause:** TypeScript types (interfaces) were being imported as runtime values. With `verbatimModuleSyntax: true` in tsconfig, type-only imports must use `import type` syntax to prevent runtime module resolution errors.
+
+**Fix:** Updated all page components to use `import type` for type-only imports:
+- `apps/web/src/pages/Dashboard.tsx` - Separated `api` (value) from `Production, ShotSummary` (types)
+- `apps/web/src/pages/ShotDetail.tsx` - Separated `api` from `ShotDetail, Version, Event, LineageNode`
+- `apps/web/src/pages/Packages.tsx` - Separated `api` from `Package`
+- `apps/web/src/pages/Ask.tsx` - Separated `api` from `AskResponse`
+
+**Files changed:**
+- `apps/web/src/pages/Dashboard.tsx` - Fixed type imports
+- `apps/web/src/pages/ShotDetail.tsx` - Fixed type imports
+- `apps/web/src/pages/Packages.tsx` - Fixed type imports
+- `apps/web/src/pages/Ask.tsx` - Fixed type imports
+
+**Result:** Frontend now loads without console errors. Dashboard and all pages render correctly.
+
+### npm Install Husky Fix
+
+**Problem:** `npm install` failed with:
+```
+sh: husky: command not found
+```
+
+**Root cause:** `prepare` script runs `husky` before husky is installed, causing install to fail.
+
+**Fix:** Updated root `package.json` prepare script to tolerate husky not being available:
+- Changed `"prepare": "husky"` to `"prepare": "husky || true"`
+
+**Files changed:**
+- `package.json` - Made prepare script non-blocking
+
+**Result:** `npm install` now completes successfully even if husky isn't available yet.
+
+### How to Verify
+
+```bash
+# 1. Clean install (from repo root)
+npm install
+# Should complete without errors
+
+# 2. Start frontend dev server
+cd apps/web
+npm run dev
+
+# 3. Open browser to http://localhost:5173
+# Should see Dashboard (not blank white page)
+# No console errors
+```
+
+**Files changed:**
+- `apps/web/src/pages/Dashboard.tsx` - Fixed type imports
+- `apps/web/src/pages/ShotDetail.tsx` - Fixed type imports
+- `apps/web/src/pages/Packages.tsx` - Fixed type imports
+- `apps/web/src/pages/Ask.tsx` - Fixed type imports
+- `package.json` - Made husky prepare script non-blocking
+
+**Result:** Frontend loads correctly and npm install works reliably.
