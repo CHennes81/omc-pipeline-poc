@@ -299,15 +299,18 @@ Uncaught SyntaxError: The requested module '/src/api/client.ts' does not provide
 sh: husky: command not found
 ```
 
-**Root cause:** `prepare` script runs `husky` before husky is installed, causing install to fail.
+**Root cause:** `prepare` script runs `husky` before husky is installed, causing install to fail. Additionally, in npm workspaces, `husky` may not be in PATH, requiring `npm exec` to locate it.
 
-**Fix:** Updated root `package.json` prepare script to tolerate husky not being available:
-- Changed `"prepare": "husky"` to `"prepare": "husky || true"`
+**Fix:** Updated root `package.json` prepare script to use `npm exec` and tolerate husky not being available:
+- Changed `"prepare": "husky || true"` to `"prepare": "npm exec -- husky install || true"`
+- This ensures husky is found via npm's package resolution (works in workspaces)
+- The `|| true` ensures install doesn't fail if husky isn't available yet
+- `.husky/` directory already exists with hooks (pre-commit, commit-msg), so `husky install` will properly link them
 
 **Files changed:**
-- `package.json` - Made prepare script non-blocking
+- `package.json` - Updated prepare script to use `npm exec -- husky install`
 
-**Result:** `npm install` now completes successfully even if husky isn't available yet.
+**Result:** `npm install` now completes successfully. Husky hooks are properly initialized via npm exec, avoiding PATH dependency issues in workspaces.
 
 ### How to Verify
 
