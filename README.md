@@ -5,12 +5,14 @@ A proof-of-concept web application demonstrating deterministic asset lineage and
 ## Overview
 
 This POC implements:
+
 - Deterministic pipeline modeling (CAPTURE → OFFLOAD → DAILIES → EDIT_EXPORT → TURNOVER → ARCHIVE)
 - Metadata-first lineage tracking with explicit `derivedFrom` relationships
 - Evidence-based query system (Ask templates)
 - Immutable event log for auditability
 
 **Phase 1 Scope:**
+
 - No AI/LLM calls
 - No vector databases
 - No real media processing (MP4s are stand-ins referenced by URIs)
@@ -111,6 +113,7 @@ curl -X POST http://localhost:8000/api/import/seed \
 ### Dashboard
 
 Navigate to http://localhost:5173 to see:
+
 - Shots by stage (counts)
 - Blocked shots list
 - All shots table
@@ -118,6 +121,7 @@ Navigate to http://localhost:5173 to see:
 ### Shot Detail
 
 Click on any shot code to view:
+
 - Versions grouped by type
 - Lineage chain visualization
 - Events timeline
@@ -125,12 +129,14 @@ Click on any shot code to view:
 ### Packages
 
 View packages and their members:
+
 - Package list (TURNOVER, ARCHIVE, etc.)
 - Package members (versions included)
 
 ### Ask
 
 Query the system using deterministic templates:
+
 - Select from supported questions or type your own
 - View answers with evidence tables
 - See explanation (template + parameters)
@@ -205,6 +211,7 @@ omc-pipeline-poc/
 ## Seed Dataset
 
 The seed includes:
+
 - 1 production (EXFTR)
 - 5 shots (011_021, 011_022, 012_010, 012_011, 013_015)
 - Complete lineage chains: CAMERA_ORIGINAL → HDE_MASTER → DAILIES_PROXY → (some) EDIT_EXPORT
@@ -224,6 +231,7 @@ The seed includes:
 ### Database Connection Issues
 
 Ensure PostgreSQL is running and the database exists:
+
 ```bash
 psql -l | grep omc_pipeline_poc
 ```

@@ -53,3 +53,4 @@ FROM package_members pm LEFT JOIN packages p ON pm.package_id = p.id WHERE p.id 
 
 SELECT 'package_members with invalid version_id' as check_name, COUNT(*) as violations
 FROM package_members pm LEFT JOIN versions v ON pm.version_id = v.id WHERE v.id IS NULL;
+

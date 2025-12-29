@@ -123,3 +123,4 @@ class Event(Base):
     shot = relationship("Shot", backref="events")
     version = relationship("Version", backref="events")
     package = relationship("Package", backref="events")
+

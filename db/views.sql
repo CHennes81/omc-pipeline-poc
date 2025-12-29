@@ -46,3 +46,4 @@ SELECT
     se.created_at AS last_event_at
 FROM shots s
 LEFT JOIN shot_events se ON s.id = se.shot_id;
+

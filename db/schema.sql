@@ -120,3 +120,4 @@ CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
 -- JSONB indexes for common OMC queries
 CREATE INDEX IF NOT EXISTS idx_versions_omc_json ON versions USING GIN(omc_json);
 CREATE INDEX IF NOT EXISTS idx_events_details ON events USING GIN(details);
+

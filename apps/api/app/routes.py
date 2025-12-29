@@ -88,25 +88,35 @@ def get_shot_lineage(shot_code: str, production_code: str, db: Session = Depends
         )
 
     # Get versions with lineage
+    # Strategy: Start with latest version (by created_at/id), then recursively follow derived_from backward
+    # Order: depth ASC means latest version (depth 0) first, then ancestors in reverse chronological order
+    # Safety: Max depth of 20 prevents infinite loops from cycles
+    # Note: We find the "latest" by selecting the version with highest created_at, or if tied, highest id
     query = text("""
         WITH RECURSIVE lineage_chain AS (
-            -- Start with latest version (typically EDIT_EXPORT if exists)
+            -- Anchor: Get the most recent version for this shot (wrapped in subquery to allow ORDER BY/LIMIT)
+            -- Order by created_at DESC, then id DESC as tiebreaker to ensure we get the actual latest version
             SELECT v.id, v.version_type, v.derived_from_version_id, 0 as depth
-            FROM versions v
-            JOIN assets a ON v.asset_id = a.id
-            WHERE a.shot_id = :shot_id
-            ORDER BY v.created_at DESC
-            LIMIT 1
+            FROM (
+                SELECT v.id, v.version_type, v.derived_from_version_id
+                FROM versions v
+                JOIN assets a ON v.asset_id = a.id
+                WHERE a.shot_id = :shot_id
+                ORDER BY v.created_at DESC, v.id DESC
+                LIMIT 1
+            ) v
 
             UNION ALL
 
+            -- Recursively follow derived_from backward to ancestors
             SELECT v.id, v.version_type, v.derived_from_version_id, lc.depth + 1
             FROM versions v
             JOIN lineage_chain lc ON v.id = lc.derived_from_version_id
+            WHERE lc.depth < 20  -- Cycle protection: max depth limit
         )
         SELECT id, version_type, derived_from_version_id
         FROM lineage_chain
-        ORDER BY depth DESC
+        ORDER BY depth ASC
     """)
     result = db.execute(query, {"shot_id": shot.id})
     rows = result.fetchall()

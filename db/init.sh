@@ -18,3 +18,4 @@ echo "Database initialized successfully!"
 echo ""
 echo "To load seed data, run:"
 echo "  curl -X POST http://localhost:8000/api/import/seed -H 'Content-Type: application/json' -d '{}'"
+
