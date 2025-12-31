@@ -8,11 +8,15 @@ yarn-debug.log*
 dist/
 build/
 coverage/
-logs/
 .env
 .env.*
 .direnv/
 .DS_Store
+
+# Logs
+logs/
+*.log
+*.log.*
 
 # Backup and temporary files
 *.bak
