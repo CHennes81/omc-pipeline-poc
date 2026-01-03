@@ -3,6 +3,7 @@ import { Dashboard } from './pages/Dashboard';
 import { ShotDetailPage } from './pages/ShotDetail';
 import { PackagesPage } from './pages/Packages';
 import { AskPage } from './pages/Ask';
+import { AllShots } from './pages/AllShots';
 import { AboutDialog } from './components/AboutDialog';
 import { BuildFooter } from './components/BuildFooter';
 
@@ -32,6 +33,9 @@ export default function App() {
           <Link to="/ask" style={{ textDecoration: 'none', color: '#666' }}>
             Ask
           </Link>
+          <Link to="/shots" style={{ textDecoration: 'none', color: '#666' }}>
+            All Shots
+          </Link>
           <div style={{ marginLeft: 'auto' }}>
             <AboutDialog />
           </div>
@@ -43,6 +47,7 @@ export default function App() {
             <Route path="/shot/:shotCode" element={<ShotDetailPage />} />
             <Route path="/packages" element={<PackagesPage />} />
             <Route path="/ask" element={<AskPage />} />
+            <Route path="/shots" element={<AllShots />} />
           </Routes>
         </main>
 

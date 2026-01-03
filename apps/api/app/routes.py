@@ -38,7 +38,7 @@ def get_productions(db: Session = Depends(get_db)):
 def get_shots(production_code: str, db: Session = Depends(get_db)):
     """Get all shots for a production with stage information."""
     query = text("""
-        SELECT s.shot_code, s.scene, vs.stage
+        SELECT s.shot_code, s.scene, s.description, vs.stage
         FROM shots s
         JOIN productions p ON s.production_id = p.id
         LEFT JOIN v_shot_stage vs ON s.id = vs.shot_id
@@ -49,7 +49,7 @@ def get_shots(production_code: str, db: Session = Depends(get_db)):
     rows = result.fetchall()
 
     shots = [
-        {"shot_code": row[0], "scene": row[1], "stage": row[2] or "NEW"}
+        {"shot_code": row[0], "scene": row[1], "description": row[2], "stage": row[3] or "NEW"}
         for row in rows
     ]
     return {"shots": shots}

@@ -22,6 +22,7 @@ class ProductionsResponse(BaseModel):
 class ShotSummary(BaseModel):
     shot_code: str
     scene: Optional[str]
+    description: Optional[str]
     stage: str
 
     class Config:
@@ -169,4 +170,3 @@ class AdvanceResponse(BaseModel):
     version_id: Optional[UUID] = None
     event_id: UUID
     message: str
-

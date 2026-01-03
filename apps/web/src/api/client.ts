@@ -10,6 +10,7 @@ export interface ShotSummary {
   shot_code: string;
   scene: string | null;
   stage: string;
+  description?: string | null;
 }
 
 export interface ShotDetail {
@@ -91,17 +92,24 @@ export const api = {
     fetchJson<{ shot: ShotDetail }>(`/api/shots/${shotCode}?production_code=${productionCode}`),
 
   getShotLineage: (shotCode: string, productionCode: string) =>
-    fetchJson<{ shot_code: string; chain: LineageNode[] }>(`/api/shots/${shotCode}/lineage?production_code=${productionCode}`),
+    fetchJson<{ shot_code: string; chain: LineageNode[] }>(
+      `/api/shots/${shotCode}/lineage?production_code=${productionCode}`,
+    ),
 
   getShotEvents: (shotCode: string, productionCode: string) =>
-    fetchJson<{ events: Event[] }>(`/api/shots/${shotCode}/events?production_code=${productionCode}`),
+    fetchJson<{ events: Event[] }>(
+      `/api/shots/${shotCode}/events?production_code=${productionCode}`,
+    ),
 
   // Packages
   getPackages: (productionCode: string) =>
     fetchJson<{ packages: Package[] }>(`/api/packages?production_code=${productionCode}`),
 
   getPackageDetail: (packageId: string) =>
-    fetchJson<{ package: Package; members: Array<{ version_id: string; version_type: string; storage_uri: string }> }>(`/api/packages/${packageId}`),
+    fetchJson<{
+      package: Package;
+      members: Array<{ version_id: string; version_type: string; storage_uri: string }>;
+    }>(`/api/packages/${packageId}`),
 
   // Ask
   askQuestion: (productionCode: string, question: string) =>
