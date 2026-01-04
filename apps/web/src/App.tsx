@@ -4,8 +4,7 @@ import { ShotDetailPage } from './pages/ShotDetail';
 import { PackagesPage } from './pages/Packages';
 import { AskPage } from './pages/Ask';
 import { AllShots } from './pages/AllShots';
-import { AboutDialog } from './components/AboutDialog';
-import { BuildFooter } from './components/BuildFooter';
+import { AboutLink } from './components/AboutLink';
 
 export default function App() {
   return (
@@ -39,9 +38,7 @@ export default function App() {
           <Link to="/shots" style={{ textDecoration: 'none', color: 'var(--nav-link)' }}>
             All Shots
           </Link>
-          <div style={{ marginLeft: 'auto' }}>
-            <AboutDialog />
-          </div>
+          <AboutLink />
         </nav>
 
         <main style={{ flex: 1, fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial' }}>
@@ -53,8 +50,6 @@ export default function App() {
             <Route path="/shots" element={<AllShots />} />
           </Routes>
         </main>
-
-        <BuildFooter />
       </div>
     </BrowserRouter>
   );

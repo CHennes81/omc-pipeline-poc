@@ -50,32 +50,6 @@ body {
   font-size: 18px;
 }
 
-/* About button */
-.about-btn {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  padding: 8px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--btn-border);
-  background: var(--btn-bg);
-  color: var(--btn-fg);
-  cursor: pointer;
-  box-shadow: var(--shadow);
-  transition:
-    transform 120ms ease,
-    filter 120ms ease,
-    background-color 120ms ease;
-}
-.about-btn:hover {
-  transform: translateY(-1px);
-  background: #2a2a2a;
-}
-.about-btn:active {
-  transform: translateY(0);
-  background: #1f1f1f;
-}
-
 /* Modal */
 .modal-backdrop {
   position: fixed;
