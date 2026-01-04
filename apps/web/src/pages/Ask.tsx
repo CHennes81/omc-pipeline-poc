@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { api } from '../api/client';
 import type { AskResponse } from '../api/client';
 import { ExplanationDialog } from '../components/ExplanationDialog';
+import { AnswerText } from '../components/AnswerText';
+import { formatDateTime } from '../utils/formatting';
 import './PageStyles.css';
 
 const TEMPLATE_QUESTIONS = [
@@ -130,7 +132,9 @@ export function AskPage() {
             <div className="ask-results">
               <div className="page-section">
                 <h2>Answer</h2>
-                <div className="page-info-box">{response.answer}</div>
+                <div className="page-info-box">
+                  <AnswerText text={response.answer} />
+                </div>
               </div>
 
               <div className="page-section">
@@ -176,17 +180,29 @@ export function AskPage() {
                             <div key={idx} className="audit-trail-item">
                               {otherFields.length > 0 && (
                                 <div className="audit-trail-metadata">
-                                  {otherFields.map(([fieldKey, val]) => (
-                                    <div key={fieldKey} className="audit-trail-field">
-                                      <span className="audit-trail-field-label">{fieldKey}:</span>
-                                      <span className="audit-trail-field-value">
-                                        {val !== null && val !== undefined ? String(val) : '-'}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {otherFields.map(([fieldKey, val]) => {
+                                    const isDateField =
+                                      fieldKey.toLowerCase() === 'created_at' ||
+                                      fieldKey.toLowerCase() === 'created at' ||
+                                      fieldKey.toLowerCase() === 'createdat';
+                                    const displayValue: string =
+                                      isDateField && val !== null && val !== undefined
+                                        ? formatDateTime(String(val))
+                                        : val !== null && val !== undefined
+                                          ? String(val)
+                                          : '-';
+                                    return (
+                                      <div key={fieldKey} className="audit-trail-field">
+                                        <span className="audit-trail-field-label">{fieldKey}:</span>
+                                        <span className="audit-trail-field-value">
+                                          {displayValue}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
-                              {storageUri && (
+                              {storageUri != null && String(storageUri).trim() !== '' && (
                                 <div className="audit-trail-uri">
                                   <span className="audit-trail-field-label">Storage URI:</span>
                                   <a
