@@ -49,12 +49,6 @@ export function PackagesPage() {
 
   return (
     <div className="page-container">
-      <div style={{ marginBottom: '16px' }}>
-        <a href="/" className="page-back-link">
-          ← Back to Dashboard
-        </a>
-      </div>
-
       <h1 className="page-title">Packages</h1>
 
       {error && <div className="page-error">Error: {error}</div>}
@@ -62,14 +56,15 @@ export function PackagesPage() {
       {loading && <div className="page-loading">Loading...</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-        <div>
-          <h2 className="page-section">Package List</h2>
+        <div className="packages-section">
+          <h2 className="packages-section-title">Package List</h2>
+          <div className="packages-section-divider"></div>
           {packages.length > 0 ? (
             <table className="page-table">
               <thead>
                 <tr>
-                  <th>Type</th>
                   <th>Label</th>
+                  <th>Type</th>
                   <th>Vendor</th>
                   <th>Created</th>
                 </tr>
@@ -82,8 +77,20 @@ export function PackagesPage() {
                     className={selectedPackage === pkg.id ? 'page-list-item-selected' : ''}
                     style={{ cursor: 'pointer' }}
                   >
+                    <td>
+                      <a
+                        href="#"
+                        className="packages-label-link"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSelectedPackage(pkg.id);
+                        }}
+                      >
+                        {pkg.label}
+                      </a>
+                    </td>
                     <td>{pkg.package_type}</td>
-                    <td>{pkg.label}</td>
                     <td>{pkg.vendor || '-'}</td>
                     <td>{new Date(pkg.created_at).toLocaleString()}</td>
                   </tr>
@@ -91,12 +98,13 @@ export function PackagesPage() {
               </tbody>
             </table>
           ) : (
-            <p className="page-empty">No packages found</p>
+            <p className="packages-empty-state">No packages found</p>
           )}
         </div>
 
-        <div>
-          <h2 className="page-section">Package Members</h2>
+        <div className="packages-section">
+          <h2 className="packages-section-title">Package Members</h2>
+          <div className="packages-section-divider"></div>
           {selectedPackage && packageMembers.length > 0 ? (
             <table className="page-table">
               <thead>
@@ -115,9 +123,9 @@ export function PackagesPage() {
               </tbody>
             </table>
           ) : selectedPackage ? (
-            <p className="page-empty">No members in this package</p>
+            <p className="packages-empty-state">No members in this package</p>
           ) : (
-            <p className="page-empty">Select a package to view members</p>
+            <p className="packages-empty-state">Select a package to view members</p>
           )}
         </div>
       </div>

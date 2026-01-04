@@ -55,12 +55,6 @@ export function ShotDetailPage() {
 
   return (
     <div className="page-container">
-      <div style={{ marginBottom: '16px' }}>
-        <a href="/" className="page-back-link">
-          ← Back to Dashboard
-        </a>
-      </div>
-
       <h1 className="page-title">Shot: {shot.shot_code}</h1>
       <div className="page-section">
         <p>

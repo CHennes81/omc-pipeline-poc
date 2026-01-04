@@ -56,12 +56,6 @@ export function AskPage() {
 
   return (
     <div className="page-container">
-      <div style={{ marginBottom: '16px' }}>
-        <a href="/" className="page-back-link">
-          ← Back to Dashboard
-        </a>
-      </div>
-
       <h1 className="page-title">Ask</h1>
 
       <div className="page-section">
