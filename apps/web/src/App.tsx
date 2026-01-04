@@ -13,27 +13,30 @@ export default function App() {
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <nav
           style={{
-            background: '#f0f0f0',
+            background: 'var(--nav-bg)',
             padding: '12px 24px',
-            borderBottom: '1px solid #ddd',
+            borderBottom: '1px solid var(--nav-border)',
             display: 'flex',
             gap: '24px',
             alignItems: 'center',
           }}
         >
-          <Link to="/" style={{ textDecoration: 'none', color: '#333', fontWeight: 'bold' }}>
+          <Link
+            to="/"
+            style={{ textDecoration: 'none', color: 'var(--nav-link-active)', fontWeight: 'bold' }}
+          >
             Production Lineage Concierge
           </Link>
-          <Link to="/" style={{ textDecoration: 'none', color: '#666' }}>
+          <Link to="/" style={{ textDecoration: 'none', color: 'var(--nav-link)' }}>
             Dashboard
           </Link>
-          <Link to="/packages" style={{ textDecoration: 'none', color: '#666' }}>
+          <Link to="/packages" style={{ textDecoration: 'none', color: 'var(--nav-link)' }}>
             Packages
           </Link>
-          <Link to="/ask" style={{ textDecoration: 'none', color: '#666' }}>
+          <Link to="/ask" style={{ textDecoration: 'none', color: 'var(--nav-link)' }}>
             Ask
           </Link>
-          <Link to="/shots" style={{ textDecoration: 'none', color: '#666' }}>
+          <Link to="/shots" style={{ textDecoration: 'none', color: 'var(--nav-link)' }}>
             All Shots
           </Link>
           <div style={{ marginLeft: 'auto' }}>
