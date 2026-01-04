@@ -3,12 +3,17 @@
   --bg: #111;
   --fg: #eaeaea;
   --muted: #a3a3a3;
-  --card: #ffffff;
-  --card-fg: #111;
-  --btn-bg: #ffffff;
-  --btn-fg: #111;
-  --btn-border: #d1d5db;
+  --card: #1a1a1a;
+  --card-fg: #eaeaea;
+  --btn-bg: #242424;
+  --btn-fg: #eaeaea;
+  --btn-border: rgba(255, 255, 255, 0.12);
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --nav-bg: #1a1a1a;
+  --nav-border: rgba(255, 255, 255, 0.08);
+  --nav-link: #a3a3a3;
+  --nav-link-hover: #eaeaea;
+  --nav-link-active: #eaeaea;
 }
 
 html,
@@ -45,36 +50,11 @@ body {
   font-size: 18px;
 }
 
-/* About button */
-.about-btn {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  padding: 8px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--btn-border);
-  background: var(--btn-bg);
-  color: var(--btn-fg);
-  cursor: pointer;
-  box-shadow: var(--shadow);
-  transition:
-    transform 120ms ease,
-    filter 120ms ease;
-}
-.about-btn:hover {
-  transform: translateY(-1px);
-  filter: brightness(0.95);
-}
-.about-btn:active {
-  transform: translateY(0);
-  filter: brightness(0.9);
-}
-
 /* Modal */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.7);
   display: grid;
   place-items: center;
   padding: 16px;
@@ -84,6 +64,7 @@ body {
   width: min(520px, 92vw);
   background: var(--card);
   color: var(--card-fg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   padding: 18px 16px 14px 16px;
   box-shadow: var(--shadow);
@@ -91,6 +72,10 @@ body {
 .modal-card h2 {
   margin: 8px 0 12px 0;
   font-size: 20px;
+  color: var(--card-fg);
+}
+.modal-card strong {
+  color: var(--card-fg);
 }
 .modal-actions {
   text-align: right;
@@ -103,6 +88,13 @@ body {
   background: var(--btn-bg);
   color: var(--btn-fg);
   cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.btn:hover {
+  background: #2a2a2a;
+}
+.btn:active {
+  background: #1f1f1f;
 }
 
 /* Footer build info */
@@ -114,4 +106,12 @@ body {
 .footer strong {
   color: var(--fg);
   font-weight: 600;
+}
+
+/* Navigation link hover states */
+nav a {
+  transition: color 0.2s ease;
+}
+nav a:hover {
+  color: var(--nav-link-hover) !important;
 }

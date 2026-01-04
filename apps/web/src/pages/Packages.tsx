@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import type { Package } from '../api/client';
+import './PageStyles.css';
 
 export function PackagesPage() {
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
-  const [packageMembers, setPackageMembers] = useState<Array<{ version_id: string; version_type: string; storage_uri: string }>>([]);
+  const [packageMembers, setPackageMembers] = useState<
+    Array<{ version_id: string; version_type: string; storage_uri: string }>
+  >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const productionCode = 'EXFTR'; // TODO: get from context
@@ -45,84 +48,84 @@ export function PackagesPage() {
   };
 
   return (
-    <div style={{ padding: '24px', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ marginBottom: '16px' }}>
-        <a href="/" style={{ color: '#0066cc' }}>← Back to Dashboard</a>
-      </div>
+    <div className="page-container">
+      <h1 className="page-title">Packages</h1>
 
-      <h1>Packages</h1>
+      {error && <div className="page-error">Error: {error}</div>}
 
-      {error && (
-        <div style={{ padding: '12px', background: '#fee', border: '1px solid #fcc', marginBottom: '16px' }}>
-          Error: {error}
-        </div>
-      )}
-
-      {loading && <div>Loading...</div>}
+      {loading && <div className="page-loading">Loading...</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-        <div>
-          <h2>Package List</h2>
+        <div className="packages-section">
+          <h2 className="packages-section-title">Package List</h2>
+          <div className="packages-section-divider"></div>
           {packages.length > 0 ? (
-            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <table className="page-table">
               <thead>
-                <tr style={{ background: '#f0f0f0' }}>
-                  <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Type</th>
-                  <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Label</th>
-                  <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Vendor</th>
-                  <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Created</th>
+                <tr>
+                  <th>Label</th>
+                  <th>Type</th>
+                  <th>Vendor</th>
+                  <th>Created</th>
                 </tr>
               </thead>
               <tbody>
-                {packages.map(pkg => (
+                {packages.map((pkg) => (
                   <tr
                     key={pkg.id}
                     onClick={() => setSelectedPackage(pkg.id)}
-                    style={{
-                      cursor: 'pointer',
-                      background: selectedPackage === pkg.id ? '#e6f3ff' : 'transparent',
-                    }}
+                    className={selectedPackage === pkg.id ? 'page-list-item-selected' : ''}
+                    style={{ cursor: 'pointer' }}
                   >
-                    <td style={{ padding: '8px', border: '1px solid #ddd' }}>{pkg.package_type}</td>
-                    <td style={{ padding: '8px', border: '1px solid #ddd' }}>{pkg.label}</td>
-                    <td style={{ padding: '8px', border: '1px solid #ddd' }}>{pkg.vendor || '-'}</td>
-                    <td style={{ padding: '8px', border: '1px solid #ddd' }}>
-                      {new Date(pkg.created_at).toLocaleString()}
+                    <td>
+                      <a
+                        href="#"
+                        className="packages-label-link"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSelectedPackage(pkg.id);
+                        }}
+                      >
+                        {pkg.label}
+                      </a>
                     </td>
+                    <td>{pkg.package_type}</td>
+                    <td>{pkg.vendor || '-'}</td>
+                    <td>{new Date(pkg.created_at).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : (
-            <p>No packages found</p>
+            <p className="packages-empty-state">No packages found</p>
           )}
         </div>
 
-        <div>
-          <h2>Package Members</h2>
+        <div className="packages-section">
+          <h2 className="packages-section-title">Package Members</h2>
+          <div className="packages-section-divider"></div>
           {selectedPackage && packageMembers.length > 0 ? (
-            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <table className="page-table">
               <thead>
-                <tr style={{ background: '#f0f0f0' }}>
-                  <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Version Type</th>
-                  <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Storage URI</th>
+                <tr>
+                  <th>Version Type</th>
+                  <th>Storage URI</th>
                 </tr>
               </thead>
               <tbody>
-                {packageMembers.map(member => (
+                {packageMembers.map((member) => (
                   <tr key={member.version_id}>
-                    <td style={{ padding: '8px', border: '1px solid #ddd' }}>{member.version_type}</td>
-                    <td style={{ padding: '8px', border: '1px solid #ddd', fontFamily: 'monospace', fontSize: '12px' }}>
-                      {member.storage_uri}
-                    </td>
+                    <td>{member.version_type}</td>
+                    <td className="monospace">{member.storage_uri}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : selectedPackage ? (
-            <p>No members in this package</p>
+            <p className="packages-empty-state">No members in this package</p>
           ) : (
-            <p>Select a package to view members</p>
+            <p className="packages-empty-state">Select a package to view members</p>
           )}
         </div>
       </div>
