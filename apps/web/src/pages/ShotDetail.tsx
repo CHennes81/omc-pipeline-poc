@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ShotDetail, Version, Event, LineageNode } from '../api/client';
@@ -7,20 +7,14 @@ import './PageStyles.css';
 export function ShotDetailPage() {
   const { shotCode } = useParams<{ shotCode: string }>();
   const [shot, setShot] = useState<ShotDetail | null>(null);
-  const [versions, setVersions] = useState<Version[]>([]);
+  const [versions] = useState<Version[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [lineage, setLineage] = useState<LineageNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const productionCode = 'EXFTR'; // TODO: get from context or route
 
-  useEffect(() => {
-    if (shotCode) {
-      loadShotData();
-    }
-  }, [shotCode]);
-
-  const loadShotData = async () => {
+  const loadShotData = useCallback(async () => {
     if (!shotCode) return;
     try {
       setLoading(true);
@@ -38,7 +32,13 @@ export function ShotDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [shotCode, productionCode]);
+
+  useEffect(() => {
+    if (shotCode) {
+      loadShotData();
+    }
+  }, [shotCode, loadShotData]);
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">Error: {error}</div>;

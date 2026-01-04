@@ -57,9 +57,9 @@ export interface LineageNode {
 
 export interface AskResponse {
   template: string;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
   answer: string;
-  evidence: Record<string, any[]>;
+  evidence: Record<string, unknown[]>;
   explanation: string;
 }
 

@@ -107,26 +107,39 @@ export function AskPage() {
                   <table className="page-table">
                     <thead>
                       <tr>
-                        {Object.keys(items[0]).map((col) => (
-                          <th key={col}>{col}</th>
-                        ))}
+                        {(() => {
+                          const firstItem = items[0];
+                          if (typeof firstItem !== 'object' || firstItem === null) {
+                            return null;
+                          }
+                          const firstItemRecord = firstItem as Record<string, unknown>;
+                          return Object.keys(firstItemRecord).map((col) => (
+                            <th key={col}>{col}</th>
+                          ));
+                        })()}
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((item: any, idx: number) => (
-                        <tr key={idx}>
-                          {Object.values(item).map((val: any, colIdx: number) => (
-                            <td
-                              key={colIdx}
-                              className={
-                                typeof val === 'string' && val.length > 50 ? 'monospace' : ''
-                              }
-                            >
-                              {val !== null && val !== undefined ? String(val) : '-'}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
+                      {items.map((item: unknown, idx: number) => {
+                        if (typeof item !== 'object' || item === null) {
+                          return null;
+                        }
+                        const itemRecord = item as Record<string, unknown>;
+                        return (
+                          <tr key={idx}>
+                            {Object.values(itemRecord).map((val: unknown, colIdx: number) => (
+                              <td
+                                key={colIdx}
+                                className={
+                                  typeof val === 'string' && val.length > 50 ? 'monospace' : ''
+                                }
+                              >
+                                {val !== null && val !== undefined ? String(val) : '-'}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 ) : (
