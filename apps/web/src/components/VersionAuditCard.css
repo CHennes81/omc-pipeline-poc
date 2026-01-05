@@ -11,9 +11,9 @@
 
 .version-audit-line1 {
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+  justify-content: space-between;
   align-items: baseline;
+  gap: 16px;
 }
 
 .version-audit-line2 {
@@ -24,11 +24,21 @@
   padding-top: 4px;
 }
 
+.version-audit-line2 .version-audit-field {
+  white-space: nowrap;
+}
+
 .version-audit-line3 {
   display: flex;
+  justify-content: space-between;
   align-items: baseline;
   gap: 6px;
   font-size: 13px;
+  color: var(--dashboard-text-secondary);
+}
+
+.version-audit-version-id-field {
+  margin-left: auto;
 }
 
 .version-audit-uri-section {

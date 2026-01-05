@@ -1,8 +1,20 @@
-import { formatDateTime, formatLabel, isUUID, normalizeTimecode } from '../utils/formatting';
+import { formatDateTime, isUUID, normalizeTimecode } from '../utils/formatting';
 import './VersionAuditCard.css';
 
 interface VersionAuditCardProps {
   version: Record<string, unknown>;
+}
+
+/**
+ * Format version_type by removing underscores and converting to Title Case
+ * Example: "CAMERA_ORIGINAL" -> "Camera Original"
+ */
+function formatVersionType(versionType: unknown): string {
+  if (!versionType) return '—';
+  return String(versionType)
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
 
 export function VersionAuditCard({ version }: VersionAuditCardProps) {
@@ -13,6 +25,7 @@ export function VersionAuditCard({ version }: VersionAuditCardProps) {
   const fps = version['fps'] || version['Fps'] || version['FPS'];
   const timecodeIn = version['timecode_in'] || version['Timecode In'] || version['Timecode_in'];
   const timecodeOut = version['timecode_out'] || version['Timecode Out'] || version['Timecode_out'];
+  const reel = version['reel'] || version['Reel'];
   const storageUri =
     version['storage_uri'] ||
     version['Storage URI'] ||
@@ -22,66 +35,70 @@ export function VersionAuditCard({ version }: VersionAuditCardProps) {
     | string
     | undefined;
 
-  // Build detail fields array (only Codec, Fps, Timecode In, Timecode Out if present)
-  const detailFields: Array<[string, unknown]> = [];
-  if (codec !== null && codec !== undefined && codec !== '') {
-    detailFields.push(['codec', codec]);
-  }
-  if (fps !== null && fps !== undefined && fps !== '') {
-    detailFields.push(['fps', fps]);
-  }
-  if (timecodeIn !== null && timecodeIn !== undefined && timecodeIn !== '') {
-    detailFields.push(['timecode_in', normalizeTimecode(String(timecodeIn))]);
-  }
-  if (timecodeOut !== null && timecodeOut !== undefined && timecodeOut !== '') {
-    detailFields.push(['timecode_out', normalizeTimecode(String(timecodeOut))]);
-  }
+  // Format values, using "—" for missing/null/empty
+  const formatValue = (val: unknown): string => {
+    if (val === null || val === undefined || val === '') return '—';
+    return String(val);
+  };
+
+  const formatTimecode = (val: unknown): string => {
+    if (val === null || val === undefined || val === '') return '—';
+    return normalizeTimecode(String(val));
+  };
 
   return (
     <div className="version-audit-card">
-      {/* Line 1: Version Type and Created */}
+      {/* Line 1: Version Type (left) and Created (right) */}
       <div className="version-audit-line1">
-        {versionType && (
-          <span className="version-audit-field">
-            <span className="version-audit-label">Version Type:</span>
-            <span className="version-audit-value">{String(versionType)}</span>
+        <span className="version-audit-field">
+          <span className="version-audit-label">Version Type:</span>
+          <span className="version-audit-value">{formatVersionType(versionType)}</span>
+        </span>
+        <span className="version-audit-field" style={{ marginLeft: 'auto' }}>
+          <span className="version-audit-label">Created:</span>
+          <span className="version-audit-value">
+            {createdAt ? formatDateTime(String(createdAt)) : '—'}
           </span>
-        )}
-        {createdAt && (
-          <span className="version-audit-field">
-            <span className="version-audit-label">Created:</span>
-            <span className="version-audit-value">{formatDateTime(String(createdAt))}</span>
-          </span>
-        )}
+        </span>
       </div>
 
-      {/* Line 2: Details (Codec, FPS, Timecode In, Timecode Out) */}
-      {detailFields.length > 0 && (
-        <div className="version-audit-line2">
-          {detailFields.map(([key, val]) => (
-            <span key={key} className="version-audit-field">
-              <span className="version-audit-label">{formatLabel(key)}:</span>
-              <span className="version-audit-value">{String(val)}</span>
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Line 2: Codec, FPS, Timecode In, Timecode Out (all always shown) */}
+      <div className="version-audit-line2">
+        <span className="version-audit-field">
+          <span className="version-audit-label">Codec:</span>
+          <span className="version-audit-value">{formatValue(codec)}</span>
+        </span>
+        <span className="version-audit-field">
+          <span className="version-audit-label">FPS:</span>
+          <span className="version-audit-value">{formatValue(fps)}</span>
+        </span>
+        <span className="version-audit-field">
+          <span className="version-audit-label">Timecode In:</span>
+          <span className="version-audit-value">{formatTimecode(timecodeIn)}</span>
+        </span>
+        <span className="version-audit-field">
+          <span className="version-audit-label">Timecode Out:</span>
+          <span className="version-audit-value">{formatTimecode(timecodeOut)}</span>
+        </span>
+      </div>
 
-      {/* Line 3: Version ID (before divider) */}
-      {versionId && (
-        <div className="version-audit-line3">
+      {/* Line 3: Reel (left) and Version ID (right - de-emphasized grey) */}
+      <div className="version-audit-line3">
+        <span className="version-audit-field">
+          <span className="version-audit-label">Reel:</span>
+          <span className="version-audit-value">{formatValue(reel)}</span>
+        </span>
+        <span className="version-audit-field version-audit-version-id-field">
           <span className="version-audit-label">Version ID:</span>
-          <span className="version-audit-uuid">{versionId}</span>
-        </div>
-      )}
+          <span className="version-audit-uuid">{versionId || '—'}</span>
+        </span>
+      </div>
 
       {/* Divider and Storage URI */}
-      {storageUri && (
-        <div className="version-audit-uri-section">
-          <span className="version-audit-label">Storage URI:</span>
-          <span className="version-audit-uri">{String(storageUri)}</span>
-        </div>
-      )}
+      <div className="version-audit-uri-section">
+        <span className="version-audit-label">Storage URI:</span>
+        <span className="version-audit-uri">{formatValue(storageUri)}</span>
+      </div>
     </div>
   );
 }
