@@ -96,7 +96,7 @@ export function VersionAuditCard({ version }: VersionAuditCardProps) {
 
       {/* Divider and Storage URI */}
       <div className="version-audit-uri-section">
-        <span className="version-audit-label">Storage URI:</span>
+        <span className="version-audit-label">Locator:</span>
         <span className="version-audit-uri">{formatValue(storageUri)}</span>
       </div>
     </div>

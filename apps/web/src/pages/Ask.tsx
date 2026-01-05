@@ -244,7 +244,7 @@ export function AskPage() {
                                 )}
                                 {storageUri != null && String(storageUri).trim() !== '' && (
                                   <div className="audit-trail-uri">
-                                    <span className="audit-trail-field-label">Storage URI:</span>
+                                    <span className="audit-trail-field-label">Locator:</span>
                                     <a
                                       href={String(storageUri)}
                                       target="_blank"
