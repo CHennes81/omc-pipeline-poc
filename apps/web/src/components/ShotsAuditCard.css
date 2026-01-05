@@ -7,7 +7,7 @@
 .shot-audit-item {
   display: grid;
   grid-template-columns: 1.8fr 1fr 0.7fr 0.9fr;
-  align-items: baseline;
+  align-items: center;
   gap: 16px;
   padding: 12px;
   background: var(--dashboard-surface);
