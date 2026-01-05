@@ -4,6 +4,7 @@ import type { AskResponse } from '../api/client';
 import { ExplanationDialog } from '../components/ExplanationDialog';
 import { AnswerText } from '../components/AnswerText';
 import { VersionAuditCard } from '../components/VersionAuditCard';
+import { ShotsAuditCard } from '../components/ShotsAuditCard';
 import { formatDateTime } from '../utils/formatting';
 import './PageStyles.css';
 
@@ -181,83 +182,109 @@ export function AskPage() {
                           )),
                     );
 
+                  // Check if this is a "shots" evidence group
+                  const isShotsEvidence =
+                    key.toLowerCase() === 'shots' ||
+                    key.toLowerCase().includes('shot') ||
+                    items.some(
+                      (item: unknown) =>
+                        typeof item === 'object' &&
+                        item !== null &&
+                        (Object.keys(item as Record<string, unknown>).some(
+                          (k) =>
+                            k.toLowerCase() === 'shot_code' ||
+                            k.toLowerCase() === 'shot code' ||
+                            k.toLowerCase() === 'shotcode',
+                        ) ||
+                          Object.values(item as Record<string, unknown>).some(
+                            (val) => typeof val === 'string' && /^\d{3}_\d{3}$/.test(val),
+                          )),
+                    );
+
                   return (
                     <div key={key} className="audit-trail-group" style={{ marginBottom: '24px' }}>
                       <h3>{key}</h3>
                       {items.length > 0 ? (
                         <div className="audit-trail-items">
-                          {items.map((item: unknown, idx: number) => {
-                            if (typeof item !== 'object' || item === null) {
-                              return null;
-                            }
-
+                          {/* Use ShotsAuditCard for shots evidence */}
+                          {isShotsEvidence ? (
+                            <ShotsAuditCard shots={items as Array<Record<string, unknown>>} />
+                          ) : isVersionsEvidence ? (
                             // Use VersionAuditCard for versions evidence
-                            if (isVersionsEvidence) {
+                            items.map((item: unknown, idx: number) => {
+                              if (typeof item !== 'object' || item === null) {
+                                return null;
+                              }
                               return (
                                 <VersionAuditCard
                                   key={idx}
                                   version={item as Record<string, unknown>}
                                 />
                               );
-                            }
+                            })
+                          ) : (
+                            // Fallback to generic audit trail for other evidence
+                            items.map((item: unknown, idx: number) => {
+                              if (typeof item !== 'object' || item === null) {
+                                return null;
+                              }
+                              const itemRecord = item as Record<string, unknown>;
+                              const storageUri =
+                                itemRecord['storage_uri'] ||
+                                itemRecord['Storage URI'] ||
+                                itemRecord['storageURI'];
+                              const otherFields = Object.entries(itemRecord).filter(
+                                ([k]) =>
+                                  k.toLowerCase() !== 'storage_uri' &&
+                                  k !== 'Storage URI' &&
+                                  k !== 'storageURI',
+                              );
 
-                            // Fallback to generic audit trail for non-version evidence
-                            const itemRecord = item as Record<string, unknown>;
-                            const storageUri =
-                              itemRecord['storage_uri'] ||
-                              itemRecord['Storage URI'] ||
-                              itemRecord['storageURI'];
-                            const otherFields = Object.entries(itemRecord).filter(
-                              ([k]) =>
-                                k.toLowerCase() !== 'storage_uri' &&
-                                k !== 'Storage URI' &&
-                                k !== 'storageURI',
-                            );
-
-                            return (
-                              <div key={idx} className="audit-trail-item">
-                                {otherFields.length > 0 && (
-                                  <div className="audit-trail-metadata">
-                                    {otherFields.map(([fieldKey, val]) => {
-                                      const isDateField =
-                                        fieldKey.toLowerCase() === 'created_at' ||
-                                        fieldKey.toLowerCase() === 'created at' ||
-                                        fieldKey.toLowerCase() === 'createdat';
-                                      const displayValue: string =
-                                        isDateField && val !== null && val !== undefined
-                                          ? formatDateTime(String(val))
-                                          : val !== null && val !== undefined
-                                            ? String(val)
-                                            : '-';
-                                      return (
-                                        <div key={fieldKey} className="audit-trail-field">
-                                          <span className="audit-trail-field-label">
-                                            {fieldKey}:
-                                          </span>
-                                          <span className="audit-trail-field-value">
-                                            {displayValue}
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                {storageUri != null && String(storageUri).trim() !== '' && (
-                                  <div className="audit-trail-uri">
-                                    <span className="audit-trail-field-label">Locator:</span>
-                                    <a
-                                      href={String(storageUri)}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="audit-trail-uri-link"
-                                    >
-                                      {String(storageUri)}
-                                    </a>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                              return (
+                                <div key={idx} className="audit-trail-item">
+                                  {otherFields.length > 0 && (
+                                    <div className="audit-trail-metadata">
+                                      {otherFields.map(([fieldKey, val]) => {
+                                        const isDateField =
+                                          fieldKey.toLowerCase() === 'created_at' ||
+                                          fieldKey.toLowerCase() === 'created at' ||
+                                          fieldKey.toLowerCase() === 'createdat';
+                                        const displayValue: string =
+                                          isDateField && val !== null && val !== undefined
+                                            ? formatDateTime(String(val))
+                                            : val !== null && val !== undefined
+                                              ? String(val)
+                                              : '-';
+                                        return (
+                                          <div key={fieldKey} className="audit-trail-field">
+                                            <span className="audit-trail-field-label">
+                                              {fieldKey}:
+                                            </span>
+                                            <span className="audit-trail-field-value">
+                                              {displayValue}
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  {storageUri != null && String(storageUri).trim() !== '' && (
+                                    <div className="audit-trail-uri">
+                                      <span className="audit-trail-field-label">Locator:</span>
+                                      <a
+                                        href={String(storageUri)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="audit-trail-uri-link"
+                                      >
+                                        {String(storageUri)}
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
                         </div>
                       ) : (
                         <p className="page-empty">No audit information found</p>
