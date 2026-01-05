@@ -96,9 +96,10 @@ def lineage_chain_to_latest_edit_export(db: Session, shot_code: str, production_
 def shots_with_dailies_no_edit_export(db: Session, production_code: str) -> Dict[str, Any]:
     """Template: shots_with_dailies_no_edit_export()"""
     query = text("""
-        SELECT DISTINCT s.shot_code, s.scene, s.description
+        SELECT DISTINCT s.shot_code, s.scene, s.description, vs.stage
         FROM shots s
         JOIN productions p ON s.production_id = p.id
+        LEFT JOIN v_shot_stage vs ON s.id = vs.shot_id
         WHERE p.code = :production_code
           AND EXISTS (
               SELECT 1 FROM events e
@@ -126,9 +127,10 @@ def shots_with_dailies_no_edit_export(db: Session, production_code: str) -> Dict
 def shots_ready_for_turnover_and_missing(db: Session, production_code: str) -> Dict[str, Any]:
     """Template: shots_ready_for_turnover_and_missing()"""
     query = text("""
-        SELECT DISTINCT s.shot_code, s.scene
+        SELECT DISTINCT s.shot_code, s.scene, s.description, vs.stage
         FROM shots s
         JOIN productions p ON s.production_id = p.id
+        LEFT JOIN v_shot_stage vs ON s.id = vs.shot_id
         WHERE p.code = :production_code
           AND EXISTS (
               SELECT 1 FROM events e
@@ -331,4 +333,3 @@ def route_question(question: str) -> tuple[str, Dict[str, Any]]:
         return "archive_status", {}
 
     return None, {}
-

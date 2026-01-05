@@ -5,9 +5,9 @@
 }
 
 .shot-audit-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1.8fr 1fr 0.7fr 0.9fr;
+  align-items: baseline;
   gap: 16px;
   padding: 12px;
   background: var(--dashboard-surface);
@@ -16,42 +16,29 @@
   min-height: 44px;
 }
 
-.shot-audit-content {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-  flex: 1;
-  min-width: 0; /* Allow truncation */
-}
-
 .shot-audit-field {
   display: flex;
   align-items: baseline;
   gap: 6px;
   font-size: 13px;
-  white-space: nowrap;
-  flex-shrink: 0;
+  min-width: 0; /* Allow truncation */
 }
 
 .shot-audit-label {
   font-weight: 600;
   color: var(--dashboard-text-secondary);
-  width: 95px; /* Fixed width to align labels across cards (accommodates "Description:") */
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .shot-audit-value {
   color: var(--dashboard-text-primary);
   white-space: nowrap;
-}
-
-/* Description field can truncate if needed */
-.shot-audit-content .shot-audit-field:first-child {
-  flex-shrink: 1;
   min-width: 0;
 }
 
-.shot-audit-content .shot-audit-field:first-child .shot-audit-value {
+/* Description field can truncate if needed */
+.shot-audit-item .shot-audit-field:first-child .shot-audit-value {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -73,8 +60,7 @@
 }
 
 .shot-audit-stage-field {
-  margin-left: auto;
-  flex-shrink: 0;
+  justify-self: end;
 }
 
 /* Stage badge styles (matching Dashboard.css) */
