@@ -63,8 +63,18 @@ export interface AskResponse {
   explanation: string;
 }
 
+export interface AskError {
+  httpStatus: number;
+  url: string;
+  code: string;
+  message: string;
+  rawBody?: string;
+  timestamp: string;
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${url}`, {
+  const fullUrl = `${API_BASE_URL}${url}`;
+  const response = await fetch(fullUrl, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -73,8 +83,38 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Unknown error' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    // Try to parse JSON error response per Appendix E error envelope
+    let errorDetail: { code?: string; message?: string; category?: string } = {};
+    let rawBody: string | undefined;
+
+    try {
+      const text = await response.text();
+      rawBody = text;
+      if (text) {
+        errorDetail = JSON.parse(text);
+        // Handle FastAPI error envelope: { detail: { code, message, category } }
+        if (errorDetail.detail && typeof errorDetail.detail === 'object') {
+          errorDetail = errorDetail.detail as {
+            code?: string;
+            message?: string;
+            category?: string;
+          };
+        }
+      }
+    } catch {
+      // If parsing fails, use defaults
+    }
+
+    const error: AskError = {
+      httpStatus: response.status,
+      url: fullUrl,
+      code: errorDetail.code || 'unknown_error',
+      message: errorDetail.message || `HTTP ${response.status}`,
+      rawBody,
+      timestamp: new Date().toISOString(),
+    };
+
+    throw error;
   }
 
   return response.json();
