@@ -1,0 +1,82 @@
+.version-audit-card {
+  padding: 12px;
+  background: var(--dashboard-surface);
+  border: 1px solid var(--dashboard-border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.version-audit-line1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.version-audit-line2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: baseline;
+  padding-top: 4px;
+}
+
+.version-audit-line2 .version-audit-field {
+  white-space: nowrap;
+}
+
+.version-audit-line3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--dashboard-text-secondary);
+}
+
+.version-audit-version-id-field {
+  margin-left: auto;
+}
+
+.version-audit-uri-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dashboard-border);
+  width: 100%;
+}
+
+.version-audit-field {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.version-audit-label {
+  font-weight: 600;
+  color: var(--dashboard-text-secondary);
+}
+
+.version-audit-value {
+  color: var(--dashboard-text-primary);
+}
+
+.version-audit-uri {
+  color: var(--dashboard-text-primary);
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+  line-height: 1.5;
+  user-select: all;
+}
+
+.version-audit-uuid {
+  color: var(--dashboard-text-secondary);
+  font-family: monospace;
+  font-size: 12px;
+}

@@ -1,0 +1,112 @@
+.shots-audit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shot-audit-item {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr 0.7fr 0.9fr;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  background: var(--dashboard-surface);
+  border: 1px solid var(--dashboard-border);
+  border-radius: 6px;
+  min-height: 44px;
+}
+
+.shot-audit-field {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 0; /* Allow truncation */
+}
+
+.shot-audit-label {
+  font-weight: 600;
+  color: var(--dashboard-text-secondary);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.shot-audit-value {
+  color: var(--dashboard-text-primary);
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Description field can truncate if needed */
+.shot-audit-item .shot-audit-field:first-child .shot-audit-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.shot-audit-code {
+  color: var(--dashboard-accent);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.shot-audit-code:hover {
+  color: var(--dashboard-accent-hover);
+  text-decoration: underline;
+}
+
+.shot-audit-stage-field {
+  justify-self: end;
+}
+
+/* Stage badge styles (matching Dashboard.css) */
+.stage-badge {
+  display: inline-block;
+  padding: var(--spacing-xs, 4px) var(--spacing-sm, 8px);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--font-size-xs, 12px);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--dashboard-surface-elevated, #242424);
+  border: 1px solid var(--dashboard-border, rgba(255, 255, 255, 0.08));
+}
+
+.stage-badge[data-stage='NEW'] {
+  color: var(--stage-new, #6b7280);
+  border-color: var(--stage-new, #6b7280);
+}
+
+.stage-badge[data-stage='CAPTURE'] {
+  color: var(--stage-capture, #8b5cf6);
+  border-color: var(--stage-capture, #8b5cf6);
+}
+
+.stage-badge[data-stage='OFFLOAD'] {
+  color: var(--stage-offload, #06b6d4);
+  border-color: var(--stage-offload, #06b6d4);
+}
+
+.stage-badge[data-stage='DAILIES'] {
+  color: var(--stage-dailies, #10b981);
+  border-color: var(--stage-dailies, #10b981);
+}
+
+.stage-badge[data-stage='EDIT_EXPORT'] {
+  color: var(--stage-edit-export, #f59e0b);
+  border-color: var(--stage-edit-export, #f59e0b);
+}
+
+.stage-badge[data-stage='TURNOVER'] {
+  color: var(--stage-turnover, #3b82f6);
+  border-color: var(--stage-turnover, #3b82f6);
+}
+
+.stage-badge[data-stage='ARCHIVE'] {
+  color: var(--stage-archive, #64748b);
+  border-color: var(--stage-archive, #64748b);
+}
