@@ -72,6 +72,37 @@ export interface AskError {
   timestamp: string;
 }
 
+// Type definitions for error envelope parsing
+type ErrorDetail = { code?: string; message?: string; category?: string };
+
+// Type guard: check if value is a record (object with string keys)
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+
+// Extract error detail from either envelope format
+function extractErrorDetail(parsed: unknown): ErrorDetail {
+  if (!isRecord(parsed)) {
+    return {};
+  }
+
+  // Check for FastAPI envelope format: { detail: { code, message, category } }
+  if ('detail' in parsed && isRecord(parsed.detail)) {
+    return {
+      code: typeof parsed.detail.code === 'string' ? parsed.detail.code : undefined,
+      message: typeof parsed.detail.message === 'string' ? parsed.detail.message : undefined,
+      category: typeof parsed.detail.category === 'string' ? parsed.detail.category : undefined,
+    };
+  }
+
+  // Check for flattened format: { code, message, category }
+  return {
+    code: typeof parsed.code === 'string' ? parsed.code : undefined,
+    message: typeof parsed.message === 'string' ? parsed.message : undefined,
+    category: typeof parsed.category === 'string' ? parsed.category : undefined,
+  };
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const fullUrl = `${API_BASE_URL}${url}`;
   const response = await fetch(fullUrl, {
@@ -84,22 +115,15 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     // Try to parse JSON error response per Appendix E error envelope
-    let errorDetail: { code?: string; message?: string; category?: string } = {};
+    let errorDetail: ErrorDetail = {};
     let rawBody: string | undefined;
 
     try {
       const text = await response.text();
       rawBody = text;
       if (text) {
-        errorDetail = JSON.parse(text);
-        // Handle FastAPI error envelope: { detail: { code, message, category } }
-        if (errorDetail.detail && typeof errorDetail.detail === 'object') {
-          errorDetail = errorDetail.detail as {
-            code?: string;
-            message?: string;
-            category?: string;
-          };
-        }
+        const parsed: unknown = JSON.parse(text);
+        errorDetail = extractErrorDetail(parsed);
       }
     } catch {
       // If parsing fails, use defaults
