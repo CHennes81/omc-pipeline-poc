@@ -65,5 +65,6 @@ export PYTHONPATH="${API_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 set_env_if_needed "APP_ENV" "${DESIRED_APP_ENV}"
 set_env_if_needed "CORS_ORIGINS" "${DESIRED_CORS_ORIGINS}"
+set_env_if_needed "FASTAPI_DEBUG" "true"
 
-exec python -m uvicorn app.main:app --reload --host "${API_HOST}" --port "${API_PORT}"
+exec python -m uvicorn app.main:app --log-level debug --reload --use-colors --host "${API_HOST}" --port "${API_PORT}"

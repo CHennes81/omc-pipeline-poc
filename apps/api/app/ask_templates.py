@@ -44,26 +44,31 @@ def latest_camera_original(db: Session, shot_code: str, production_code: str) ->
 def lineage_chain_to_latest_edit_export(db: Session, shot_code: str, production_code: str) -> Dict[str, Any]:
     """Template: lineage_chain_to_latest_edit_export(shot_code)"""
     # Get all versions for this shot, ordered by lineage
+    # Returns chain ordered root-first (depth DESC): CAMERA_ORIGINAL → ... → EDIT_EXPORT
     query = text("""
         WITH RECURSIVE lineage_chain AS (
-            -- Start with EDIT_EXPORT
+            -- Anchor: Start with latest EDIT_EXPORT (wrapped in subquery to allow ORDER BY/LIMIT)
             SELECT v.id, v.version_type, v.derived_from_version_id, v.storage_uri, v.created_at, 0 as depth
-            FROM versions v
-            JOIN assets a ON v.asset_id = a.id
-            JOIN shots s ON a.shot_id = s.id
-            JOIN productions p ON s.production_id = p.id
-            WHERE s.shot_code = :shot_code
-              AND p.code = :production_code
-              AND v.version_type = 'EDIT_EXPORT'
-            ORDER BY v.created_at DESC
-            LIMIT 1
+            FROM (
+                SELECT v.id, v.version_type, v.derived_from_version_id, v.storage_uri, v.created_at
+                FROM versions v
+                JOIN assets a ON v.asset_id = a.id
+                JOIN shots s ON a.shot_id = s.id
+                JOIN productions p ON s.production_id = p.id
+                WHERE s.shot_code = :shot_code
+                  AND p.code = :production_code
+                  AND v.version_type = 'EDIT_EXPORT'
+                ORDER BY v.created_at DESC, v.id DESC
+                LIMIT 1
+            ) v
 
             UNION ALL
 
-            -- Recursively get parent versions
+            -- Recursive member: Follow derived_from_version_id backwards with cycle protection
             SELECT v.id, v.version_type, v.derived_from_version_id, v.storage_uri, v.created_at, lc.depth + 1
             FROM versions v
             JOIN lineage_chain lc ON v.id = lc.derived_from_version_id
+            WHERE lc.depth < 20
         )
         SELECT id, version_type, derived_from_version_id, storage_uri, created_at
         FROM lineage_chain
@@ -245,7 +250,7 @@ def archive_status(db: Session, production_code: str) -> Dict[str, Any]:
     """Template: archive_status(production_code)"""
     query = text("""
         SELECT
-            COUNT(DISTINCT s.id) FILTER (WHERE e.event_type = 'ARCHIVED') as archived_count,
+            COUNT(DISTINCT CASE WHEN e.id IS NOT NULL THEN s.id END) as archived_count,
             COUNT(DISTINCT s.id) as total_shots
         FROM shots s
         JOIN productions p ON s.production_id = p.id
@@ -256,13 +261,13 @@ def archive_status(db: Session, production_code: str) -> Dict[str, Any]:
     row = result.fetchone()
 
     if row:
-        archived = row[0] or 0
-        total = row[1] or 0
+        archived = row[0] if row[0] is not None else 0
+        total = row[1] if row[1] is not None else 0
         return {
             "template": "archive_status",
             "params": {"production_code": production_code},
             "answer": f"Archive status: {archived} of {total} shots archived",
-            "evidence": {"summary": {"archived": archived, "total": total}},
+            "evidence": {"summary": [{"archived": archived, "total": total}]},
             "explanation": f"Query for archive completion status for production {production_code}"
         }
 
@@ -270,7 +275,7 @@ def archive_status(db: Session, production_code: str) -> Dict[str, Any]:
         "template": "archive_status",
         "params": {"production_code": production_code},
         "answer": f"No shots found for production {production_code}",
-        "evidence": {"summary": {}},
+        "evidence": {"summary": []},
         "explanation": f"Query for archive completion status for production {production_code}"
     }
 
