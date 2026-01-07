@@ -701,3 +701,65 @@ The Ask feature satisfies this appendix when:
 ---
 
 End of Appendix E.
+
+## Appendix F — SQL Query Contracts, Constraints, and Response Shape
+
+This appendix captures implementation constraints and clarifications discovered during development of SQL-backed query behavior across the system. All items herein are considered normative and apply to all current and future queries, regardless of feature or UI surface.
+
+### F.1 Deterministic Query Behavior
+
+All SQL-backed queries in Phase 1 are deterministic and non-generative.
+
+Each query maps to:
+
+- A fixed intent or template identifier
+- A bounded SQL query (or bounded query set)
+- A fixed response schema
+
+The system does not infer, embellish, or extrapolate beyond query results. Sparse or summary-only responses are intentional and correct when aligned with the defined query intent.
+
+### F.2 PostgreSQL SQL Constraints
+
+To ensure correctness and compatibility with PostgreSQL, the following constraints MUST be observed:
+
+- `COUNT(DISTINCT ...) FILTER (WHERE ...)` MUST NOT be used.
+  PostgreSQL does not support `FILTER` with `COUNT(DISTINCT ...)`.
+
+- Conditional distinct counts MUST use the following pattern:
+  `COUNT(DISTINCT CASE WHEN <condition> THEN <id> END)`
+
+- All `UNION` / `UNION ALL` statements MUST:
+  - Return the same number of columns
+  - Use identical column ordering
+  - Use explicit column aliases in every SELECT
+  - Return compatible data types at each column position
+
+Failure to meet these constraints will result in runtime SQL errors and is considered an implementation defect.
+
+### F.3 Evidence and Response Shape Contracts
+
+API response schemas enforce strict typing.
+
+- Any response field defined as a list MUST always be returned as a list, even when a query yields a single row.
+- Returning an object where a list is expected will trigger a response validation error and result in a server-side failure.
+
+This constraint is intentional and ensures UI stability, audit consistency, and forward compatibility as queries evolve.
+
+### F.4 Aggregate vs. Detail Semantics
+
+Some queries are explicitly defined to return aggregate or summary-level information only.
+
+- Aggregate queries MAY return counts, totals, or health indicators without per-entity detail.
+- The absence of row-level detail in such queries is intentional and MUST NOT be treated as incomplete data.
+
+Drill-down or per-entity detail queries must be implemented as separate, explicitly defined query intents.
+
+### F.5 Error Handling Guarantees
+
+For all SQL-backed queries:
+
+- SQL syntax errors MUST surface as explicit API errors
+- Schema mismatches MUST fail during response serialization
+- Silent coercion, implicit reshaping, or automatic structural correction of data is forbidden
+
+These guarantees prioritize correctness, auditability, and long-term system integrity.
