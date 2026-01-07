@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { api } from '../api/client';
-import type { AskResponse } from '../api/client';
+import type { AskResponse, AskError } from '../api/client';
 import { ExplanationDialog } from '../components/ExplanationDialog';
 import { AnswerText } from '../components/AnswerText';
 import { VersionAuditCard } from '../components/VersionAuditCard';
 import { ShotsAuditCard } from '../components/ShotsAuditCard';
+import { AskErrorPanel } from '../components/AskErrorPanel';
 import { formatDateTime } from '../utils/formatting';
 import './PageStyles.css';
 
@@ -37,7 +38,7 @@ export function AskPage() {
   const [question, setQuestion] = useState('');
   const [response, setResponse] = useState<AskResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AskError | null>(null);
   const [showSupportedQuestions, setShowSupportedQuestions] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
   const productionCode = 'EXFTR'; // TODO: get from context
@@ -50,7 +51,19 @@ export function AskPage() {
       const result = await api.askQuestion(productionCode, question);
       setResponse(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to ask question');
+      // API client throws AskError objects
+      if (err && typeof err === 'object' && 'httpStatus' in err && 'code' in err) {
+        setError(err as AskError);
+      } else {
+        // Fallback for unexpected error shapes
+        setError({
+          httpStatus: 500,
+          url: `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/ask`,
+          code: 'unknown_error',
+          message: err instanceof Error ? err.message : 'Failed to ask question',
+          timestamp: new Date().toISOString(),
+        });
+      }
       setResponse(null);
     } finally {
       setLoading(false);
@@ -128,7 +141,7 @@ export function AskPage() {
 
         {/* Right Column: Results */}
         <div className="ask-right-column">
-          {error && <div className="page-error">Error: {error}</div>}
+          {error && <AskErrorPanel error={error} />}
 
           {response && (
             <div className="ask-results">

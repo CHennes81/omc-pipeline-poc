@@ -1,11 +1,16 @@
 """FastAPI route handlers."""
+import json
+import traceback
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List
+from sqlalchemy.exc import SQLAlchemyError
+from typing import List, Optional
 from uuid import UUID
 from app.database import get_db
 from app import models, schemas, seed, ask_templates
+from app.config import settings
 
 router = APIRouter()
 
@@ -315,32 +320,167 @@ def get_package_members(package_id: UUID, db: Session = Depends(get_db)):
 @router.post("/ask", response_model=schemas.AskResponse)
 def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
     """Answer a question using deterministic templates."""
-    template_name, params = ask_templates.route_question(request.question)
+    template_name = None
+    error_code = None
+    error_category = None
+    exception_message = None
+    stack_trace = None
 
-    if not template_name or template_name not in ask_templates.TEMPLATES:
+    try:
+        # Route question to template
+        try:
+            template_name, params = ask_templates.route_question(request.question)
+        except Exception as routing_error:
+            # Routing logic itself failed (shouldn't happen, but handle gracefully)
+            error_code = "unsupported_question"
+            error_category = "unanswerable_question"
+            exception_message = f"Question routing failed: {str(routing_error)}"
+            stack_trace = traceback.format_exc()
+
+            # Log the failure
+            _log_ask_failure(
+                production_code=request.production_code,
+                question=request.question,
+                template_name=None,
+                error_code=error_code,
+                error_category=error_category,
+                exception_message=exception_message,
+                stack_trace=stack_trace,
+            )
+
+            # Return 400 with error envelope per Appendix E
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": error_code,
+                    "message": exception_message,
+                    "category": error_category,
+                }
+            )
+
+        # Check if routing failed (unsupported or ambiguous)
+        if not template_name or template_name not in ask_templates.TEMPLATES:
+            error_code = "unsupported_question"
+            error_category = "unanswerable_question"
+            exception_message = "Question could not be mapped to a supported template"
+
+            # Log the failure
+            _log_ask_failure(
+                production_code=request.production_code,
+                question=request.question,
+                template_name=None,
+                error_code=error_code,
+                error_category=error_category,
+                exception_message=exception_message,
+                stack_trace=None,
+            )
+
+            # Return 400/422 with error envelope per Appendix E
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": error_code,
+                    "message": exception_message,
+                    "category": error_category,
+                }
+            )
+
+        template_func = ask_templates.TEMPLATES[template_name]
+
+        # Add production_code to params if not present
+        if "production_code" not in params:
+            params["production_code"] = request.production_code
+
+        # Execute template
+        result = template_func(db, **params)
+        return result
+
+    except HTTPException:
+        # Re-raise HTTPExceptions (already logged and formatted)
+        raise
+    except SQLAlchemyError as e:
+        # Database/SQL errors
+        error_code = "query_execution_error"
+        error_category = "data_retrieval_failure"
+        exception_message = str(e)
+        stack_trace = traceback.format_exc()
+
+        # Log the failure
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=template_name,
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=stack_trace,
+        )
+
+        # Return 500 with error envelope per Appendix E
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "code": "unsupported_question",
-                "message": "Question could not be mapped to a supported template",
-                "details": {"supported_templates": list(ask_templates.TEMPLATES.keys())}
+                "code": error_code,
+                "message": exception_message,
+                "category": error_category,
+            }
+        )
+    except Exception as e:
+        # Other internal errors during template execution
+        error_code = "template_error"
+        error_category = "data_retrieval_failure"
+        exception_message = str(e)
+        stack_trace = traceback.format_exc()
+
+        # Log the failure
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=template_name,
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=stack_trace,
+        )
+
+        # Return 500 with error envelope per Appendix E
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": error_code,
+                "message": exception_message,
+                "category": error_category,
             }
         )
 
-    template_func = ask_templates.TEMPLATES[template_name]
 
-    # Add production_code to params if not present
-    if "production_code" not in params:
-        params["production_code"] = request.production_code
+def _log_ask_failure(
+    production_code: str,
+    question: str,
+    template_name: Optional[str],
+    error_code: str,
+    error_category: str,
+    exception_message: str,
+    stack_trace: Optional[str],
+):
+    """Emit structured JSON log line to stdout per Appendix E.5."""
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "environment": settings.app_env,
+        "endpoint": "/api/ask",
+        "production_code": production_code,
+        "question": question,
+        "template": template_name,
+        "error_code": error_code,
+        "error_category": error_category,
+        "exception": exception_message,
+    }
 
-    try:
-        result = template_func(db, **params)
-        return result
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"code": "template_error", "message": str(e)}
-        )
+    if stack_trace:
+        log_entry["stack_trace"] = stack_trace
+
+    # Emit as single-line JSON to stdout (Railway/local dev will capture)
+    print(json.dumps(log_entry, ensure_ascii=False))
 
 
 # Advance operations (optional workflow ops)
