@@ -267,7 +267,7 @@ def archive_status(db: Session, production_code: str) -> Dict[str, Any]:
             "template": "archive_status",
             "params": {"production_code": production_code},
             "answer": f"Archive status: {archived} of {total} shots archived",
-            "evidence": {"summary": {"archived": archived, "total": total}},
+            "evidence": {"summary": [{"archived": archived, "total": total}]},
             "explanation": f"Query for archive completion status for production {production_code}"
         }
 
@@ -275,7 +275,7 @@ def archive_status(db: Session, production_code: str) -> Dict[str, Any]:
         "template": "archive_status",
         "params": {"production_code": production_code},
         "answer": f"No shots found for production {production_code}",
-        "evidence": {"summary": {}},
+        "evidence": {"summary": []},
         "explanation": f"Query for archive completion status for production {production_code}"
     }
 
