@@ -250,7 +250,7 @@ def archive_status(db: Session, production_code: str) -> Dict[str, Any]:
     """Template: archive_status(production_code)"""
     query = text("""
         SELECT
-            COUNT(DISTINCT s.id) FILTER (WHERE e.event_type = 'ARCHIVED') as archived_count,
+            COUNT(DISTINCT CASE WHEN e.id IS NOT NULL THEN s.id END) as archived_count,
             COUNT(DISTINCT s.id) as total_shots
         FROM shots s
         JOIN productions p ON s.production_id = p.id
@@ -261,8 +261,8 @@ def archive_status(db: Session, production_code: str) -> Dict[str, Any]:
     row = result.fetchone()
 
     if row:
-        archived = row[0] or 0
-        total = row[1] or 0
+        archived = row[0] if row[0] is not None else 0
+        total = row[1] if row[1] is not None else 0
         return {
             "template": "archive_status",
             "params": {"production_code": production_code},

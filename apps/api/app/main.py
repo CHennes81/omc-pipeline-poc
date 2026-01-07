@@ -4,10 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app import routes
 
+import os
+def _env_truthy(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
 app = FastAPI(
     title="Production Lineage Concierge API",
     description="Phase 1: Deterministic lineage and auditability",
-    version="0.1.0"
+    version="0.1.0",
+    debug=_env_truthy("FASTAPI_DEBUG", "false"),
 )
 
 # CORS middleware
