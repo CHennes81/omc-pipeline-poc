@@ -287,9 +287,20 @@ STRICT RULES:
 - You MUST NOT generate SQL
 - You MUST NOT claim you executed anything
 - You MUST NOT invent parameter values
-- If a required parameter is missing, list it in missing_params
-- If multiple intents could match, populate ambiguity
-- If you're unsure, report lower confidence
+- If EXACTLY ONE intent matches the question's goal but parameters are missing:
+  * Set intent_id to that intent
+  * List missing parameters in missing_params
+  * Set user_message to ask for the missing information
+  * Set confidence based on clarity (0.60-0.79 typical)
+- If MULTIPLE intents could match (true ambiguity):
+  * Set intent_id to null
+  * Set ambiguity to {{"candidates": ["id1", "id2"]}}
+  * Set user_message to ask which intent the user meant
+  * Set confidence based on uncertainty
+- If NO intent matches:
+  * Set intent_id to null
+  * Set confidence low (<0.60)
+  * Set user_message to explain why
 
 REQUIRED OUTPUT SCHEMA:
 {{
@@ -309,8 +320,8 @@ PARAMETER EXTRACTION EXAMPLES:
 CONFIDENCE GUIDELINES:
 - 0.95+: Perfect match, all required params extracted
 - 0.80-0.94: Clear intent, all params present
-- 0.60-0.79: Likely intent but missing params or slight ambiguity
-- <0.60: Highly uncertain or unsupported
+- 0.60-0.79: Clear intent but missing params, or slight ambiguity
+- <0.60: Highly uncertain, multiple intents possible, or unsupported
 
 Return JSON now:"""
 
@@ -368,59 +379,96 @@ Return JSON now:"""
         """Apply confidence gating logic per Appendix G.
 
         Gating order:
-        1. If confidence >= ASK_NL_CONFIDENCE_MIN, no ambiguity, no missing required params → OK
-        2. Else if first attempt, confidence >= ASK_NL_CONFIDENCE_CLARIFY_MIN, potentially resolvable → NEEDS_CLARIFICATION
-        3. Else → UNANSWERABLE
+        1. First attempt: Check if clarification is possible (missing_params, ambiguity, or user_message present)
+           → If yes and confidence reasonable, return NEEDS_CLARIFICATION
+        2. Second attempt (is_clarification=True): If still needs clarification → UNANSWERABLE (no loops)
+        3. If confidence >= ASK_NL_CONFIDENCE_MIN, no ambiguity, no missing required params → OK
+        4. Else → UNANSWERABLE
 
-        Second attempt MUST resolve to OK or UNANSWERABLE (no clarification).
+        Second attempt MUST resolve to OK or UNANSWERABLE (no clarification loops).
         """
-        # Check if we have a valid intent
-        if not intent_id:
-            if not is_clarification and confidence >= settings.ask_nl_confidence_clarify_min:
-                # Stage 6: nl_decision
-                _trace(trace_id, "nl_decision", {
-                    "routing_status": "needs_clarification",
-                    "reason": "no intent_id but confidence >= clarify threshold",
-                    "confidence": confidence,
-                    "clarify_threshold": settings.ask_nl_confidence_clarify_min
-                })
-                return RoutingResult(
-                    status=RoutingStatus.NEEDS_CLARIFICATION,
-                    confidence=confidence,
-                    user_message=user_message or "I couldn't identify a specific question type. Could you rephrase or choose from the supported questions?"
-                )
-            # Stage 6: nl_decision
+        # Detect if LLM is signaling that clarification would help
+        has_clarification_signal = bool(missing_params or ambiguity or (user_message and not intent_id))
+
+        # GUARD: If this is a clarification attempt and still needs clarification → UNANSWERABLE (no loops)
+        if is_clarification and has_clarification_signal:
             _trace(trace_id, "nl_decision", {
                 "routing_status": "unanswerable",
-                "reason": "no intent_id identified" + (" (clarification attempt)" if is_clarification else ""),
-                "confidence": confidence
+                "reason": "clarification attempt still requires clarification (max 1 cycle per Appendix G)",
+                "confidence": confidence,
+                "missing_params": missing_params,
+                "has_ambiguity": bool(ambiguity),
+                "intent_id": intent_id
             })
             return RoutingResult(
                 status=RoutingStatus.UNANSWERABLE,
-                error_code="unsupported_question",
-                error_message="Could not map question to a supported intent"
+                error_code="clarification_loop_prevented",
+                error_message="Unable to resolve question after clarification attempt"
             )
 
-        # Get intent definition to check required params
-        intent = self.registry.get_intent(intent_id)
-        if not intent:
+        # Get intent definition to validate (if intent_id provided)
+        intent = None
+        actual_missing = []
+        if intent_id:
+            intent = self.registry.get_intent(intent_id)
+            if not intent:
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "unanswerable",
+                    "reason": "invalid intent_id from LLM",
+                    "intent_id": intent_id
+                })
+                return RoutingResult(
+                    status=RoutingStatus.UNANSWERABLE,
+                    error_code="invalid_intent",
+                    error_message=f"Intent {intent_id} not found in registry"
+                )
+
+            # Check if required params are present
+            required_param_names = list(intent.get("required_params", {}).keys())
+            actual_missing = [p for p in required_param_names if p not in params]
+
+        # PATH 1: First attempt with clarification signal → NEEDS_CLARIFICATION
+        # This handles missing params, ambiguity, or other resolvable uncertainty
+        if not is_clarification and has_clarification_signal:
+            # Generate clarification message if none provided
+            if not user_message:
+                if actual_missing and intent_id:
+                    user_message = f"To answer this question, I need: {', '.join(actual_missing)}. Can you provide this information?"
+                elif ambiguity:
+                    candidates = ambiguity.get("candidates", [])
+                    if candidates:
+                        user_message = f"Your question could mean multiple things. Please clarify which you meant."
+                    else:
+                        user_message = "I need more information to answer this question."
+                else:
+                    user_message = "Could you provide more details or rephrase your question?"
+
+            _trace(trace_id, "nl_decision", {
+                "routing_status": "needs_clarification",
+                "reason": "first attempt with missing params, ambiguity, or clarification signal",
+                "confidence": confidence,
+                "missing_params": actual_missing if intent_id else missing_params,
+                "has_ambiguity": bool(ambiguity),
+                "intent_id": intent_id
+            })
             return RoutingResult(
-                status=RoutingStatus.UNANSWERABLE,
-                error_code="invalid_intent",
-                error_message=f"Intent {intent_id} not found"
+                status=RoutingStatus.NEEDS_CLARIFICATION,
+                intent_id=intent_id,
+                params=params,
+                confidence=confidence,
+                missing_params=actual_missing if intent_id else missing_params,
+                ambiguity=ambiguity,
+                user_message=user_message
             )
 
-        # Check if required params are present
-        required_param_names = list(intent.get("required_params", {}).keys())
-        actual_missing = [p for p in required_param_names if p not in params]
-
-        # High confidence, no ambiguity, all required params → executable
+        # PATH 2: Valid intent with high confidence and all params → OK (executable)
         if (
-            confidence >= settings.ask_nl_confidence_min
+            intent_id
+            and intent
+            and confidence >= settings.ask_nl_confidence_min
             and not ambiguity
             and not actual_missing
         ):
-            # Stage 6: nl_decision
             _trace(trace_id, "nl_decision", {
                 "routing_status": "ok",
                 "reason": "confidence >= execute threshold, no ambiguity, all required params present",
@@ -435,61 +483,32 @@ Return JSON now:"""
                 confidence=confidence
             )
 
-        # First attempt, medium confidence, potentially resolvable → clarify
-        if (
-            not is_clarification
-            and confidence >= settings.ask_nl_confidence_clarify_min
-            and (actual_missing or ambiguity)
-        ):
-            # Generate clarification message if none provided
-            if not user_message:
-                if actual_missing:
-                    user_message = f"To answer this question, I need: {', '.join(actual_missing)}. Can you provide this information?"
-                elif ambiguity:
-                    candidates = ambiguity.get("candidates", [])
-                    user_message = f"Your question could mean multiple things. Did you mean: {', '.join(candidates)}?"
+        # PATH 3: All other cases → UNANSWERABLE
+        # This includes: low confidence, no valid intent_id, or missing params on clarification attempt
+        if not intent_id:
+            reason = "no valid intent identified"
+        elif confidence < settings.ask_nl_confidence_min:
+            reason = f"confidence {confidence:.2f} below execute threshold {settings.ask_nl_confidence_min}"
+        elif actual_missing:
+            reason = f"missing required params: {actual_missing}"
+        else:
+            reason = "unable to resolve question"
 
-            # Stage 6: nl_decision
-            _trace(trace_id, "nl_decision", {
-                "routing_status": "needs_clarification",
-                "reason": "confidence >= clarify threshold but missing params or ambiguity",
-                "confidence": confidence,
-                "clarify_threshold": settings.ask_nl_confidence_clarify_min,
-                "execute_threshold": settings.ask_nl_confidence_min,
-                "missing_params": actual_missing,
-                "has_ambiguity": bool(ambiguity),
-                "intent_id": intent_id
-            })
-            return RoutingResult(
-                status=RoutingStatus.NEEDS_CLARIFICATION,
-                intent_id=intent_id,
-                params=params,
-                confidence=confidence,
-                missing_params=actual_missing,
-                ambiguity=ambiguity,
-                user_message=user_message
-            )
-
-        # All other cases → unanswerable
-        reason = "confidence < clarify threshold" if confidence < settings.ask_nl_confidence_clarify_min else "missing required params or clarification attempt"
         if is_clarification:
-            reason = "clarification attempt did not reach execute threshold"
+            reason = f"clarification attempt failed: {reason}"
 
-        # Stage 6: nl_decision
         _trace(trace_id, "nl_decision", {
             "routing_status": "unanswerable",
             "reason": reason,
             "confidence": confidence,
-            "clarify_threshold": settings.ask_nl_confidence_clarify_min,
             "execute_threshold": settings.ask_nl_confidence_min,
-            "missing_params": actual_missing,
-            "is_clarification": is_clarification,
-            "intent_id": intent_id
+            "intent_id": intent_id,
+            "is_clarification": is_clarification
         })
         return RoutingResult(
             status=RoutingStatus.UNANSWERABLE,
-            error_code="low_confidence" if confidence < settings.ask_nl_confidence_clarify_min else "missing_required_params",
-            error_message=f"Cannot execute query (confidence: {confidence:.2f}, missing: {actual_missing})"
+            error_code="unsupported_question",
+            error_message=f"Cannot execute query: {reason}"
         )
 
 

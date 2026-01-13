@@ -710,3 +710,61 @@ export ASK_NL_TRACE=true
 ```
 
 Trace logs will show every handoff in the NL pipeline, making it possible to diagnose why clarification is or isn't triggering, observe confidence scores at each stage, and verify prompt construction.
+
+---
+
+## 2026-01-12 – Fixed NL Clarification Behavior for Missing Parameters and Ambiguity
+
+Fixed natural language router to properly trigger clarification responses instead of returning hard 400 "unsupported_question" errors when parameters are missing or questions are ambiguous.
+
+### Problem
+
+When users asked questions like "What is the latest camera original?" (without specifying shot_code), the LLM correctly identified missing parameters and generated a clarifying question, but the router returned `routing_status=unanswerable` because the LLM also returned `intent_id=null`. This violated the expected clarification loop behavior.
+
+### Solution
+
+**Prompt refinement:**
+
+- Updated LLM prompt to instruct that when exactly ONE intent matches but parameters are missing, it should return that intent_id along with missing_params and user_message (not intent_id=null)
+- Clarified that intent_id=null should only be used for true ambiguity between multiple intents
+- Added explicit confidence guidelines for missing-param scenarios (0.60-0.79 typical)
+
+**Routing logic changes:**
+
+- Restructured `_apply_confidence_gates()` method to check for clarification signals (missing_params, ambiguity, user_message) BEFORE applying confidence thresholds
+- First attempt with any clarification signal → NEEDS_CLARIFICATION (regardless of confidence level)
+- Second attempt (is_clarification=True) with clarification signals → UNANSWERABLE (prevents loops per Appendix G)
+- Only executable paths require high confidence (≥0.80) with all required params present
+
+**Validation guardrails:**
+
+- Added guard to prevent clarification loops (max 1 cycle per Appendix G)
+- Validates intent_id exists in registry before attempting execution
+- Maintains all ASK_NL_TRACE logging with updated reason strings
+
+### Changes
+
+**Backend (1 file):**
+
+- `apps/api/app/nl_router.py`:
+  - Updated `_build_routing_prompt()` with clearer instructions for missing-param vs ambiguity cases
+  - Rewrote `_apply_confidence_gates()` to prioritize clarification detection over confidence thresholds
+  - Added clarification loop prevention guard for is_clarification=True cases
+  - Updated trace logging reasons to reflect new decision paths
+
+### Behavior
+
+**Before:**
+
+- "What is the latest camera original?" → 400 error (unsupported_question)
+
+**After:**
+
+- "What is the latest camera original?" → 200 with needs_clarification, user_message: "To answer this question, I need: shot_code. Can you provide this information?"
+- User provides shot_code → 200 with ok status and query results
+
+**Constraints maintained:**
+
+- Max 1 clarification cycle (Appendix G)
+- Deterministic execution only (no dynamic SQL)
+- All execution through registered intent templates
