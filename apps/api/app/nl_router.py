@@ -9,11 +9,18 @@ This module implements Appendix G requirements for deterministic NL routing:
 """
 import json
 import re
+import logging
+import hashlib
+import uuid
+from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 from openai import OpenAI
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+uvicorn_logger = logging.getLogger("uvicorn.error")
 
 
 class RoutingStatus(str, Enum):
@@ -59,6 +66,26 @@ class IntentRegistry:
         return self.intents
 
 
+def _trace(trace_id: str, stage: str, payload: Dict[str, Any]) -> None:
+    """Emit trace log if ASK_NL_TRACE is enabled.
+
+    Args:
+        trace_id: Unique trace identifier for this request
+        stage: Stage name (e.g., "nl_request_received")
+        payload: Additional data to log
+    """
+    if not settings.ask_nl_trace:
+        return
+
+    log_entry = {
+        "trace_id": trace_id,
+        "stage": stage,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        **payload
+    }
+    uvicorn_logger.info(json.dumps(log_entry))
+
+
 class NLRouter:
     """Routes natural language questions to deterministic intents using LLM."""
 
@@ -84,8 +111,48 @@ class NLRouter:
         Returns:
             RoutingResult with status and routing details
         """
+        # Generate trace ID for this request
+        trace_id = str(uuid.uuid4())
+
+        # Stage 1: nl_request_received
+        _trace(trace_id, "nl_request_received", {
+            "question": question,
+            "is_clarification": is_clarification,
+            "production_code": session_context.get("production_code") if session_context else None,
+            "mode": "nl"
+        })
+
+        # Stage 2: nl_registry_loaded
+        candidate_intents = [
+            {
+                "intent_id": intent["intent_id"],
+                "title": intent.get("title"),
+                "description": intent.get("description")
+            }
+            for intent in self.registry.get_all_intents()
+        ]
+        _trace(trace_id, "nl_registry_loaded", {
+            "registry_version": self.registry.version,
+            "candidate_intents": candidate_intents
+        })
+
         # Build routing prompt
         prompt = self._build_routing_prompt(question, session_context)
+
+        # Stage 3: nl_prompt_built
+        prompt_hash = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+        prompt_preview = prompt[:1200]
+        if len(prompt) > 1200:
+            prompt_preview += "...<truncated>"
+
+        _trace(trace_id, "nl_prompt_built", {
+            "model": self.model,
+            "temperature": 0.0,
+            "max_tokens": None,
+            "prompt_preview": prompt_preview,
+            "prompt_len_chars": len(prompt),
+            "prompt_hash": prompt_hash
+        })
 
         try:
             # Call LLM
@@ -108,6 +175,16 @@ class NLRouter:
                     error_message="LLM returned empty response"
                 )
 
+            # Stage 4: nl_openai_raw_response
+            raw_preview = response_text[:1200]
+            if len(response_text) > 1200:
+                raw_preview += "...<truncated>"
+
+            _trace(trace_id, "nl_openai_raw_response", {
+                "raw_preview": raw_preview,
+                "raw_len_chars": len(response_text)
+            })
+
             llm_output = json.loads(response_text)
 
             # Validate response schema
@@ -125,6 +202,15 @@ class NLRouter:
             missing_params = llm_output.get("missing_params", [])
             ambiguity = llm_output.get("ambiguity")
             user_message = llm_output.get("user_message")
+
+            # Stage 5: nl_openai_parsed
+            _trace(trace_id, "nl_openai_parsed", {
+                "intent_id": intent_id,
+                "confidence": confidence,
+                "missing_params": missing_params,
+                "needs_clarification": bool(missing_params or ambiguity),
+                "user_message": user_message
+            })
 
             # Validate intent_id exists in registry
             if intent_id and not self.registry.get_intent(intent_id):
@@ -146,6 +232,7 @@ class NLRouter:
 
             # Apply confidence gating per Appendix G
             result = self._apply_confidence_gates(
+                trace_id=trace_id,
                 intent_id=intent_id,
                 confidence=confidence,
                 params=params,
@@ -269,6 +356,7 @@ Return JSON now:"""
 
     def _apply_confidence_gates(
         self,
+        trace_id: str,
         intent_id: Optional[str],
         confidence: float,
         params: Dict[str, Any],
@@ -289,11 +377,24 @@ Return JSON now:"""
         # Check if we have a valid intent
         if not intent_id:
             if not is_clarification and confidence >= settings.ask_nl_confidence_clarify_min:
+                # Stage 6: nl_decision
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "needs_clarification",
+                    "reason": "no intent_id but confidence >= clarify threshold",
+                    "confidence": confidence,
+                    "clarify_threshold": settings.ask_nl_confidence_clarify_min
+                })
                 return RoutingResult(
                     status=RoutingStatus.NEEDS_CLARIFICATION,
                     confidence=confidence,
                     user_message=user_message or "I couldn't identify a specific question type. Could you rephrase or choose from the supported questions?"
                 )
+            # Stage 6: nl_decision
+            _trace(trace_id, "nl_decision", {
+                "routing_status": "unanswerable",
+                "reason": "no intent_id identified" + (" (clarification attempt)" if is_clarification else ""),
+                "confidence": confidence
+            })
             return RoutingResult(
                 status=RoutingStatus.UNANSWERABLE,
                 error_code="unsupported_question",
@@ -319,6 +420,14 @@ Return JSON now:"""
             and not ambiguity
             and not actual_missing
         ):
+            # Stage 6: nl_decision
+            _trace(trace_id, "nl_decision", {
+                "routing_status": "ok",
+                "reason": "confidence >= execute threshold, no ambiguity, all required params present",
+                "confidence": confidence,
+                "execute_threshold": settings.ask_nl_confidence_min,
+                "intent_id": intent_id
+            })
             return RoutingResult(
                 status=RoutingStatus.OK,
                 intent_id=intent_id,
@@ -340,6 +449,17 @@ Return JSON now:"""
                     candidates = ambiguity.get("candidates", [])
                     user_message = f"Your question could mean multiple things. Did you mean: {', '.join(candidates)}?"
 
+            # Stage 6: nl_decision
+            _trace(trace_id, "nl_decision", {
+                "routing_status": "needs_clarification",
+                "reason": "confidence >= clarify threshold but missing params or ambiguity",
+                "confidence": confidence,
+                "clarify_threshold": settings.ask_nl_confidence_clarify_min,
+                "execute_threshold": settings.ask_nl_confidence_min,
+                "missing_params": actual_missing,
+                "has_ambiguity": bool(ambiguity),
+                "intent_id": intent_id
+            })
             return RoutingResult(
                 status=RoutingStatus.NEEDS_CLARIFICATION,
                 intent_id=intent_id,
@@ -351,6 +471,21 @@ Return JSON now:"""
             )
 
         # All other cases → unanswerable
+        reason = "confidence < clarify threshold" if confidence < settings.ask_nl_confidence_clarify_min else "missing required params or clarification attempt"
+        if is_clarification:
+            reason = "clarification attempt did not reach execute threshold"
+
+        # Stage 6: nl_decision
+        _trace(trace_id, "nl_decision", {
+            "routing_status": "unanswerable",
+            "reason": reason,
+            "confidence": confidence,
+            "clarify_threshold": settings.ask_nl_confidence_clarify_min,
+            "execute_threshold": settings.ask_nl_confidence_min,
+            "missing_params": actual_missing,
+            "is_clarification": is_clarification,
+            "intent_id": intent_id
+        })
         return RoutingResult(
             status=RoutingStatus.UNANSWERABLE,
             error_code="low_confidence" if confidence < settings.ask_nl_confidence_clarify_min else "missing_required_params",

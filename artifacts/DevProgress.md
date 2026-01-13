@@ -672,3 +672,41 @@ UI will show mode switcher when dual_mode_ui=true. Users can toggle between dete
 ### Result
 
 The system now supports both deterministic (keyword-based) and natural language (LLM-based) Ask modes. NL mode routes questions to intents using GPT-4o-mini, extracts parameters, enforces confidence gates, and optionally asks for clarification. All execution remains deterministic via SQL templates. The implementation is fully compliant with Appendix G requirements and preserves the system's core deterministic guarantees.
+
+---
+
+## 2026-01-12 – NL Trace Logging for Diagnostics
+
+Added optional NL trace logging for intent selection and clarification diagnostics.
+
+### Changes
+
+**Backend (2 files):**
+
+- `apps/api/app/config.py` - Added `ask_nl_trace: bool` setting (default: False)
+- `apps/api/app/nl_router.py` - Added structured JSON trace logging at 6 pipeline stages:
+  1. `nl_request_received` - Logs incoming question, clarification flag, production context
+  2. `nl_registry_loaded` - Logs registry version and candidate intents
+  3. `nl_prompt_built` - Logs model, temperature, prompt preview (1200 chars), full prompt hash
+  4. `nl_openai_raw_response` - Logs raw LLM response preview (1200 chars)
+  5. `nl_openai_parsed` - Logs extracted intent_id, confidence, missing_params, user_message
+  6. `nl_decision` - Logs routing decision, reason, thresholds applied
+
+### Implementation Notes
+
+- Each NL request generates a unique `trace_id` (uuid4) reused across all log lines
+- Logs are emitted as structured JSON to standard logging (console)
+- Long content (prompts, responses) is truncated to 1200 characters with hash for verification
+- No changes to routing logic, thresholds, or Appendix G semantics
+- API key is never logged; all other data may be logged when trace is enabled
+- No performance impact when `ASK_NL_TRACE=false` (default)
+
+### Usage
+
+To enable trace logging:
+
+```bash
+export ASK_NL_TRACE=true
+```
+
+Trace logs will show every handoff in the NL pipeline, making it possible to diagnose why clarification is or isn't triggering, observe confidence scores at each stage, and verify prompt construction.

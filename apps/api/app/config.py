@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     ask_default_mode: str = "deterministic"  # "deterministic" or "nl"
     ask_nl_confidence_min: float = 0.80
     ask_nl_confidence_clarify_min: float = 0.60
+    ask_nl_trace: bool = False
 
     class Config:
         env_file = ".env"
