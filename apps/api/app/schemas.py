@@ -128,6 +128,8 @@ class PackageDetailResponse(BaseModel):
 class AskRequest(BaseModel):
     production_code: str
     question: str
+    mode: Optional[str] = "deterministic"  # "deterministic" or "nl"
+    clarification_context: Optional[Dict[str, Any]] = None  # For second-pass clarification
 
 
 class AskResponse(BaseModel):
@@ -136,6 +138,15 @@ class AskResponse(BaseModel):
     answer: str
     evidence: Dict[str, List[Any]]
     explanation: str
+
+
+class AskClarificationResponse(BaseModel):
+    """Response when NL routing needs user clarification."""
+    status: str = "needs_clarification"
+    user_message: str
+    intent_id: Optional[str] = None
+    confidence: Optional[float] = None
+    missing_params: Optional[List[str]] = None
 
 
 # Import/Seed schemas

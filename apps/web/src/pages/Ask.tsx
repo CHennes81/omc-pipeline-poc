@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api/client';
-import type { AskResponse, AskError } from '../api/client';
+import type { AskResponse, AskError, AskClarificationResponse, AskConfig } from '../api/client';
 import { ExplanationDialog } from '../components/ExplanationDialog';
 import { AnswerText } from '../components/AnswerText';
 import { VersionAuditCard } from '../components/VersionAuditCard';
@@ -37,19 +37,64 @@ const TEMPLATE_QUESTIONS = [
 export function AskPage() {
   const [question, setQuestion] = useState('');
   const [response, setResponse] = useState<AskResponse | null>(null);
+  const [clarification, setClarification] = useState<AskClarificationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<AskError | null>(null);
   const [showSupportedQuestions, setShowSupportedQuestions] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
   const productionCode = 'EXFTR'; // TODO: get from context
 
+  // NL mode state
+  const [askConfig, setAskConfig] = useState<AskConfig | null>(null);
+  const [currentMode, setCurrentMode] = useState<'deterministic' | 'nl'>('deterministic');
+  const [clarificationContext, setClarificationContext] = useState<Record<string, unknown> | null>(
+    null,
+  );
+
+  // Load Ask config on mount
+  useEffect(() => {
+    api
+      .getAskConfig()
+      .then((config) => {
+        setAskConfig(config);
+        // Set initial mode based on config
+        if (config.default_mode === 'nl' && config.nl_enabled) {
+          setCurrentMode('nl');
+        }
+      })
+      .catch(() => {
+        // If config fetch fails, stay in deterministic mode
+        setAskConfig({ nl_enabled: false, dual_mode_ui: false, default_mode: 'deterministic' });
+      });
+  }, []);
+
   const handleAsk = async () => {
     if (!question.trim()) return;
     try {
       setLoading(true);
       setError(null);
-      const result = await api.askQuestion(productionCode, question);
-      setResponse(result);
+      setClarification(null);
+
+      const result = await api.askQuestion(
+        productionCode,
+        question,
+        currentMode,
+        clarificationContext || undefined,
+      );
+
+      // Check if result is a clarification response
+      if ('status' in result && result.status === 'needs_clarification') {
+        setClarification(result as AskClarificationResponse);
+        setClarificationContext({
+          original_question: question,
+          intent_id: result.intent_id,
+        });
+        setResponse(null);
+      } else {
+        setResponse(result as AskResponse);
+        setClarification(null);
+        setClarificationContext(null);
+      }
     } catch (err) {
       // API client throws AskError objects
       if (err && typeof err === 'object' && 'httpStatus' in err && 'code' in err) {
@@ -65,9 +110,20 @@ export function AskPage() {
         });
       }
       setResponse(null);
+      setClarification(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleModeSwitch = () => {
+    const newMode = currentMode === 'deterministic' ? 'nl' : 'deterministic';
+    setCurrentMode(newMode);
+    // Clear previous results when switching modes
+    setResponse(null);
+    setClarification(null);
+    setClarificationContext(null);
+    setError(null);
   };
 
   const handleTemplateClick = (templateQuestion: string) => {
@@ -76,7 +132,34 @@ export function AskPage() {
 
   return (
     <div className="page-container">
-      <h1 className="page-title">Ask</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 className="page-title">Ask</h1>
+
+        {/* Mode switcher (only shown if dual-mode UI is enabled) */}
+        {askConfig?.dual_mode_ui && askConfig?.nl_enabled && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '14px', color: 'var(--dashboard-text-secondary)' }}>
+              Mode:
+            </span>
+            <button
+              onClick={handleModeSwitch}
+              className="page-button-link"
+              style={{ fontSize: '14px' }}
+            >
+              {currentMode === 'deterministic'
+                ? 'Deterministic (switch to NL)'
+                : 'Natural Language (switch to Deterministic)'}
+            </button>
+            {currentMode === 'nl' && (
+              <span
+                style={{ fontSize: '12px', color: 'var(--dashboard-accent)', marginLeft: '4px' }}
+              >
+                beta
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="ask-layout">
         {/* Left Column: Supported Questions + Input */}
@@ -87,7 +170,9 @@ export function AskPage() {
               onClick={() => setShowSupportedQuestions(!showSupportedQuestions)}
               style={{ cursor: 'pointer', userSelect: 'none' }}
             >
-              <h2 style={{ margin: 0, display: 'inline-block' }}>Supported Questions</h2>
+              <h2 style={{ margin: 0, display: 'inline-block' }}>
+                {currentMode === 'nl' ? 'Sample Questions' : 'Supported Questions'}
+              </h2>
               <span style={{ marginLeft: '12px', color: 'var(--dashboard-accent)' }}>
                 {showSupportedQuestions ? 'Hide' : 'Show'}
               </span>
@@ -100,7 +185,7 @@ export function AskPage() {
                   fontSize: '14px',
                 }}
               >
-                Click to view supported questions
+                Click to view {currentMode === 'nl' ? 'sample' : 'supported'} questions
               </p>
             )}
             {showSupportedQuestions && (
@@ -126,9 +211,27 @@ export function AskPage() {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 className="page-textarea"
-                placeholder="Enter your question or select from supported questions above"
+                placeholder={
+                  currentMode === 'nl'
+                    ? 'Ask your question in natural language...'
+                    : 'Enter your question or select from supported questions above'
+                }
               />
             </label>
+            {clarificationContext && (
+              <div
+                style={{
+                  marginBottom: '12px',
+                  padding: '8px',
+                  backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                  border: '1px solid rgba(255, 193, 7, 0.3)',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                }}
+              >
+                <strong>Note:</strong> Providing clarification for previous question
+              </div>
+            )}
             <button
               onClick={handleAsk}
               disabled={loading || !question.trim()}
@@ -142,6 +245,41 @@ export function AskPage() {
         {/* Right Column: Results */}
         <div className="ask-right-column">
           {error && <AskErrorPanel error={error} />}
+
+          {/* Clarification needed */}
+          {clarification && (
+            <div className="page-section">
+              <h2>Clarification Needed</h2>
+              <div
+                style={{
+                  padding: '16px',
+                  backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                  border: '1px solid rgba(255, 193, 7, 0.3)',
+                  borderRadius: '4px',
+                  marginBottom: '16px',
+                }}
+              >
+                <p style={{ margin: '0 0 12px 0', fontSize: '15px' }}>
+                  {clarification.user_message}
+                </p>
+                {clarification.confidence !== null && clarification.confidence !== undefined && (
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '13px',
+                      color: 'var(--dashboard-text-secondary)',
+                    }}
+                  >
+                    Confidence: {(clarification.confidence * 100).toFixed(0)}%
+                  </p>
+                )}
+              </div>
+              <p style={{ fontSize: '14px', color: 'var(--dashboard-text-secondary)' }}>
+                Please provide the requested information in the question box above and click Ask
+                again.
+              </p>
+            </div>
+          )}
 
           {response && (
             <div className="ask-results">

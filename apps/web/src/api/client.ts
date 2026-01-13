@@ -63,6 +63,20 @@ export interface AskResponse {
   explanation: string;
 }
 
+export interface AskClarificationResponse {
+  status: 'needs_clarification';
+  user_message: string;
+  intent_id?: string | null;
+  confidence?: number | null;
+  missing_params?: string[] | null;
+}
+
+export interface AskConfig {
+  nl_enabled: boolean;
+  dual_mode_ui: boolean;
+  default_mode: string;
+}
+
 export interface AskError {
   httpStatus: number;
   url: string;
@@ -176,11 +190,24 @@ export const api = {
     }>(`/api/packages/${packageId}`),
 
   // Ask
-  askQuestion: (productionCode: string, question: string) =>
-    fetchJson<AskResponse>('/api/ask', {
+  askQuestion: (
+    productionCode: string,
+    question: string,
+    mode?: string,
+    clarificationContext?: Record<string, unknown>,
+  ) =>
+    fetchJson<AskResponse | AskClarificationResponse>('/api/ask', {
       method: 'POST',
-      body: JSON.stringify({ production_code: productionCode, question }),
+      body: JSON.stringify({
+        production_code: productionCode,
+        question,
+        mode: mode || 'deterministic',
+        clarification_context: clarificationContext,
+      }),
     }),
+
+  // Ask Config
+  getAskConfig: () => fetchJson<AskConfig>('/api/config/ask'),
 
   // Seed
   loadSeed: (reset: boolean = false) =>
