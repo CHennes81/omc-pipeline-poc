@@ -23,6 +23,20 @@ logger = logging.getLogger(__name__)
 uvicorn_logger = logging.getLogger("uvicorn.error")
 
 
+# Mapping of intent_id to user-facing plain English descriptions for clarification messages
+# These descriptions must NOT include: "intent", "intent_id", "registry", "confidence", "threshold"
+INTENT_USER_FACING_DESCRIPTIONS: Dict[str, str] = {
+    "latest_camera_original": "checking the latest camera original",
+    "lineage_chain_to_latest_edit_export": "tracing the lineage chain to the latest edit export",
+    "shots_with_dailies_no_edit_export": "finding shots with dailies but no edit export",
+    "shots_ready_for_turnover_and_missing": "finding shots ready for turnover but not delivered",
+    "package_members": "listing package members",
+    "source_relink_keys": "getting source relink keys",
+    "latest_versions_by_type": "checking latest versions by type",
+    "archive_status": "checking archive status"
+}
+
+
 class RoutingStatus(str, Enum):
     """Possible outcomes of NL routing attempt."""
     OK = "ok"
@@ -204,12 +218,16 @@ class NLRouter:
             user_message = llm_output.get("user_message")
 
             # Stage 5: nl_openai_parsed
+            # Log LLM's original user_message for trace/debugging, but note it won't be used verbatim
+            # needs_clarification must match has_clarification_signal logic (including user_message-only signal)
+            has_clarification_signal_parsed = bool(missing_params or ambiguity or (user_message and not intent_id))
             _trace(trace_id, "nl_openai_parsed", {
                 "intent_id": intent_id,
                 "confidence": confidence,
                 "missing_params": missing_params,
-                "needs_clarification": bool(missing_params or ambiguity),
-                "user_message": user_message
+                "needs_clarification": has_clarification_signal_parsed,
+                "llm_user_message": user_message,  # LLM's original message (for trace only)
+                "ambiguity_candidates": ambiguity.get("candidates") if ambiguity else None
             })
 
             # Validate intent_id exists in registry
@@ -290,12 +308,12 @@ STRICT RULES:
 - If EXACTLY ONE intent matches the question's goal but parameters are missing:
   * Set intent_id to that intent
   * List missing parameters in missing_params
-  * Set user_message to ask for the missing information
+  * Set user_message to null (MUST be JSON null, not a string)
   * Set confidence based on clarity (0.60-0.79 typical)
 - If MULTIPLE intents could match (true ambiguity):
   * Set intent_id to null
-  * Set ambiguity to {{"candidates": ["id1", "id2"]}}
-  * Set user_message to ask which intent the user meant
+  * Set ambiguity to {{"candidates": ["intent_id1", "intent_id2", "intent_id3"]}} (top 2-3 candidate intent IDs)
+  * Set user_message to null (MUST be JSON null, not a string)
   * Set confidence based on uncertainty
 - If NO intent matches:
   * Set intent_id to null
@@ -308,9 +326,12 @@ REQUIRED OUTPUT SCHEMA:
   "confidence": 0.0 to 1.0,
   "params": {{}},
   "missing_params": [],
-  "ambiguity": null or {{"candidates": ["intent_id1", "intent_id2"]}},
-  "user_message": "null or single clarifying question for user"
+  "ambiguity": null or {{"candidates": ["intent_id1", "intent_id2", "intent_id3"]}},
+    "user_message": "string or null"
 }}
+
+IMPORTANT: For missing_params or ambiguity cases, user_message MUST be null (not a string).
+The server will generate clarification messages deterministically from your response.
 
 PARAMETER EXTRACTION EXAMPLES:
 - "shot 011_021" → {{"shot_code": "011_021"}}
@@ -331,6 +352,137 @@ Return JSON now:"""
         """Validate LLM response matches required schema."""
         required_keys = {"intent_id", "confidence", "params", "missing_params", "ambiguity", "user_message"}
         return required_keys.issubset(llm_output.keys())
+
+    def _get_intent_user_facing_description(self, intent_id: str) -> str:
+        """Get user-facing description for an intent_id with fallback to registry.
+
+        Args:
+            intent_id: The intent identifier
+
+        Returns:
+            Plain English description, sanitized to avoid internal terminology
+        """
+        # First try the explicit mapping
+        if intent_id in INTENT_USER_FACING_DESCRIPTIONS:
+            return INTENT_USER_FACING_DESCRIPTIONS[intent_id]
+
+        # Fallback to intent registry (title preferred, else description)
+        intent = self.registry.get_intent(intent_id)
+        if intent:
+            # Prefer title, fallback to description
+            desc = intent.get("title") or intent.get("description", "")
+            if desc:
+                # Sanitize: remove internal terminology
+                sanitized = desc.lower()
+                forbidden_terms = ["intent", "intent_id", "registry", "confidence", "threshold"]
+                for term in forbidden_terms:
+                    sanitized = sanitized.replace(term, "")
+                # Clean up extra spaces and return
+                sanitized = " ".join(sanitized.split())
+                if sanitized:
+                    return sanitized
+
+        # Ultimate fallback
+        return "answering your question"
+
+    def _normalize_ambiguity_candidates(self, candidates: Any) -> List[str]:
+        """Normalize and validate ambiguity candidates list.
+
+        Handles both string lists and object lists with {"intent_id": "..."} format.
+
+        Args:
+            candidates: Raw candidates from LLM (list of strings or list of objects)
+
+        Returns:
+            Normalized list of intent_id strings
+        """
+        if not isinstance(candidates, list):
+            return []
+
+        normalized = []
+        for item in candidates:
+            if isinstance(item, str):
+                normalized.append(item)
+            elif isinstance(item, dict) and "intent_id" in item:
+                intent_id = item["intent_id"]
+                if isinstance(intent_id, str):
+                    normalized.append(intent_id)
+
+        return normalized
+
+    def _generate_clarification_message(
+        self,
+        intent_id: Optional[str],
+        ambiguity: Optional[Dict[str, Any]],
+        missing_params: List[str],
+        params: Dict[str, Any]
+    ) -> str:
+        """Generate deterministic user-facing clarification message.
+
+        This method ensures clarification messages:
+        - Never include internal terminology (intent, intent_id, registry, confidence, threshold)
+        - Are generated from a strict whitelist mapping with registry fallback
+        - Include shot_code when available
+        - Present 2-3 plain-English domain options for ambiguity cases
+
+        Args:
+            intent_id: Selected intent ID (if single intent with missing params)
+            ambiguity: Ambiguity dict with candidates list (if multiple intents)
+            missing_params: List of missing parameter names
+            params: Extracted parameters (may include shot_code)
+
+        Returns:
+            Plain English clarification message
+        """
+        shot_code = params.get("shot_code")
+        shot_context = f" for shot {shot_code}" if shot_code else ""
+
+        # Case 1: Ambiguity - multiple candidate intents
+        if ambiguity:
+            raw_candidates = ambiguity.get("candidates", [])
+            normalized_candidates = self._normalize_ambiguity_candidates(raw_candidates)
+
+            if normalized_candidates:
+                # Limit to top 2-3 candidates for clarity
+                candidate_descriptions = []
+                for candidate_id in normalized_candidates[:3]:
+                    desc = self._get_intent_user_facing_description(candidate_id)
+                    if desc and desc != "answering your question":  # Skip ultimate fallback
+                        candidate_descriptions.append(desc)
+
+                if candidate_descriptions:
+                    if len(candidate_descriptions) == 2:
+                        message = f"Are you asking about {candidate_descriptions[0]} or {candidate_descriptions[1]}{shot_context}?"
+                    elif len(candidate_descriptions) == 3:
+                        message = f"Are you asking about {candidate_descriptions[0]}, {candidate_descriptions[1]}, or {candidate_descriptions[2]}{shot_context}?"
+                    else:
+                        message = f"Are you asking about {candidate_descriptions[0]}{shot_context}?"
+                    return message
+
+        # Case 2: Single intent but missing required parameters
+        if intent_id and missing_params:
+            intent_desc = self._get_intent_user_facing_description(intent_id)
+            # Convert parameter names to user-friendly terms
+            param_descriptions = []
+            for param in missing_params:
+                if param == "shot_code":
+                    param_descriptions.append("a shot code")
+                elif param == "production_code":
+                    param_descriptions.append("a production code")
+                elif param == "package_id":
+                    param_descriptions.append("a package ID")
+                else:
+                    param_descriptions.append(param.replace("_", " "))
+
+            if len(param_descriptions) == 1:
+                return f"To {intent_desc}{shot_context}, I need {param_descriptions[0]}. Can you provide it?"
+            else:
+                return f"To {intent_desc}{shot_context}, I need {', '.join(param_descriptions[:-1])}, and {param_descriptions[-1]}. Can you provide this information?"
+
+        # Case 3: Fallback for other clarification needs
+        if shot_code:
+            return f"Could you provide more details about what you'd like to know about shot {shot_code}?"
+        return "Could you provide more details or rephrase your question?"
 
     def _validate_params(self, intent_id: str, params: Dict[str, Any]) -> Optional[str]:
         """Validate parameters against intent schema.
@@ -429,27 +581,58 @@ Return JSON now:"""
 
         # PATH 1: First attempt with clarification signal → NEEDS_CLARIFICATION
         # This handles missing params, ambiguity, or other resolvable uncertainty
+        # BUT only if confidence meets clarify threshold (fail safely if too uncertain)
         if not is_clarification and has_clarification_signal:
-            # Generate clarification message if none provided
-            if not user_message:
-                if actual_missing and intent_id:
-                    user_message = f"To answer this question, I need: {', '.join(actual_missing)}. Can you provide this information?"
-                elif ambiguity:
-                    candidates = ambiguity.get("candidates", [])
-                    if candidates:
-                        user_message = f"Your question could mean multiple things. Please clarify which you meant."
-                    else:
-                        user_message = "I need more information to answer this question."
+            # Enforce clarify threshold: don't clarify if confidence is too low
+            if confidence < settings.ask_nl_confidence_clarify_min:
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "unanswerable",
+                    "reason": f"confidence {confidence:.2f} below clarify threshold {settings.ask_nl_confidence_clarify_min}",
+                    "confidence": confidence,
+                    "clarify_threshold": settings.ask_nl_confidence_clarify_min,
+                    "missing_params": actual_missing if intent_id else missing_params,
+                    "has_ambiguity": bool(ambiguity),
+                    "intent_id": intent_id
+                })
+                return RoutingResult(
+                    status=RoutingStatus.UNANSWERABLE,
+                    error_code="confidence_too_low_for_clarification",
+                    error_message=f"Cannot clarify: confidence {confidence:.2f} below threshold {settings.ask_nl_confidence_clarify_min}"
+                )
+
+            # Normalize and validate ambiguity candidates if present
+            normalized_candidates = None
+            if ambiguity:
+                raw_candidates = ambiguity.get("candidates", [])
+                normalized_candidates = self._normalize_ambiguity_candidates(raw_candidates)
+                # Update ambiguity dict with normalized candidates
+                if normalized_candidates:
+                    ambiguity = {"candidates": normalized_candidates}
                 else:
-                    user_message = "Could you provide more details or rephrase your question?"
+                    # Empty candidates list - fall back to generic clarification
+                    ambiguity = None
+
+            # ALWAYS generate clarification message deterministically from router
+            # DO NOT use LLM-provided user_message verbatim (per Appendix G requirements)
+            llm_original_message = user_message  # Preserve for trace logging
+            router_generated_message = self._generate_clarification_message(
+                intent_id=intent_id,
+                ambiguity=ambiguity,
+                missing_params=actual_missing if intent_id else missing_params,
+                params=params
+            )
 
             _trace(trace_id, "nl_decision", {
                 "routing_status": "needs_clarification",
                 "reason": "first attempt with missing params, ambiguity, or clarification signal",
                 "confidence": confidence,
+                "clarify_threshold": settings.ask_nl_confidence_clarify_min,
                 "missing_params": actual_missing if intent_id else missing_params,
                 "has_ambiguity": bool(ambiguity),
-                "intent_id": intent_id
+                "intent_id": intent_id,
+                "normalized_ambiguity_candidates": normalized_candidates if normalized_candidates else None,
+                "llm_user_message": llm_original_message,  # LLM's original message (for trace only)
+                "router_generated_message": router_generated_message  # Router-generated message (used in response)
             })
             return RoutingResult(
                 status=RoutingStatus.NEEDS_CLARIFICATION,
@@ -458,7 +641,7 @@ Return JSON now:"""
                 confidence=confidence,
                 missing_params=actual_missing if intent_id else missing_params,
                 ambiguity=ambiguity,
-                user_message=user_message
+                user_message=router_generated_message  # Router-generated, deterministic message
             )
 
         # PATH 2: Valid intent with high confidence and all params → OK (executable)
