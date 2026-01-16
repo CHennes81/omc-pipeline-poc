@@ -71,6 +71,14 @@ export interface AskClarificationResponse {
   missing_params?: string[] | null;
 }
 
+export interface AskUnanswerableResponse {
+  status: 'unanswerable';
+  error_code: string;
+  message: string;
+  intent_id?: string | null;
+  confidence?: number | null;
+}
+
 export interface AskConfig {
   nl_enabled: boolean;
   dual_mode_ui: boolean;

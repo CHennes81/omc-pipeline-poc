@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     ask_dual_mode_ui: bool = False
     ask_default_mode: str = "deterministic"  # "deterministic" or "nl"
     ask_nl_confidence_min: float = 0.80
+    ask_nl_confidence_execute_weak_min: float = 0.75
     ask_nl_confidence_clarify_min: float = 0.60
     ask_nl_trace: bool = False
 

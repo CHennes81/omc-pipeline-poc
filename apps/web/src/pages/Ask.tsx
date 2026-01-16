@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
-import type { AskResponse, AskError, AskClarificationResponse, AskConfig } from '../api/client';
+import type {
+  AskResponse,
+  AskError,
+  AskClarificationResponse,
+  AskUnanswerableResponse,
+  AskConfig,
+} from '../api/client';
 import { ExplanationDialog } from '../components/ExplanationDialog';
 import { AnswerText } from '../components/AnswerText';
 import { VersionAuditCard } from '../components/VersionAuditCard';
@@ -38,6 +44,7 @@ export function AskPage() {
   const [question, setQuestion] = useState('');
   const [response, setResponse] = useState<AskResponse | null>(null);
   const [clarification, setClarification] = useState<AskClarificationResponse | null>(null);
+  const [unanswerable, setUnanswerable] = useState<AskUnanswerableResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<AskError | null>(null);
   const [showSupportedQuestions, setShowSupportedQuestions] = useState(false);
@@ -82,17 +89,33 @@ export function AskPage() {
         clarificationContext || undefined,
       );
 
-      // Check if result is a clarification response
-      if ('status' in result && result.status === 'needs_clarification') {
-        setClarification(result as AskClarificationResponse);
-        setClarificationContext({
-          original_question: question,
-          intent_id: result.intent_id,
-        });
-        setResponse(null);
+      // Check result status and handle accordingly
+      if ('status' in result) {
+        if (result.status === 'needs_clarification') {
+          setClarification(result as AskClarificationResponse);
+          setClarificationContext({
+            original_question: question,
+            intent_id: result.intent_id,
+          });
+          setResponse(null);
+          setUnanswerable(null);
+        } else if (result.status === 'unanswerable') {
+          setUnanswerable(result as AskUnanswerableResponse);
+          setClarification(null);
+          setClarificationContext(null);
+          setResponse(null);
+        } else {
+          // Normal response (status not present or other)
+          setResponse(result as AskResponse);
+          setClarification(null);
+          setUnanswerable(null);
+          setClarificationContext(null);
+        }
       } else {
+        // Fallback: assume normal response if no status field
         setResponse(result as AskResponse);
         setClarification(null);
+        setUnanswerable(null);
         setClarificationContext(null);
       }
     } catch (err) {
@@ -111,6 +134,7 @@ export function AskPage() {
       }
       setResponse(null);
       setClarification(null);
+      setUnanswerable(null);
     } finally {
       setLoading(false);
     }
@@ -122,6 +146,7 @@ export function AskPage() {
     // Clear previous results when switching modes
     setResponse(null);
     setClarification(null);
+    setUnanswerable(null);
     setClarificationContext(null);
     setError(null);
   };
@@ -246,6 +271,27 @@ export function AskPage() {
         <div className="ask-right-column">
           {error && <AskErrorPanel error={error} />}
 
+          {/* Unanswerable response */}
+          {unanswerable && (
+            <div className="page-section">
+              <h2>Answer</h2>
+              <div className="page-info-box">
+                <AnswerText text={unanswerable.message || 'Question could not be answered'} />
+              </div>
+              {unanswerable.confidence !== null && unanswerable.confidence !== undefined && (
+                <p
+                  style={{
+                    marginTop: '12px',
+                    fontSize: '13px',
+                    color: 'var(--dashboard-text-secondary)',
+                  }}
+                >
+                  Confidence: {(unanswerable.confidence * 100).toFixed(0)}%
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Clarification needed */}
           {clarification && (
             <div className="page-section">
@@ -286,7 +332,7 @@ export function AskPage() {
               <div className="page-section">
                 <h2>Answer</h2>
                 <div className="page-info-box">
-                  <AnswerText text={response.answer} />
+                  <AnswerText text={response?.answer || 'No answer provided'} />
                 </div>
               </div>
 
@@ -308,141 +354,147 @@ export function AskPage() {
                     Show details
                   </button>
                 </div>
-                {Object.entries(response.evidence).map(([key, items]) => {
-                  // Check if this is a "versions" evidence group
-                  const isVersionsEvidence =
-                    key.toLowerCase() === 'versions' ||
-                    key.toLowerCase().includes('version') ||
-                    items.some(
-                      (item: unknown) =>
-                        typeof item === 'object' &&
-                        item !== null &&
-                        (Object.keys(item as Record<string, unknown>).some(
-                          (k) =>
-                            k.toLowerCase() === 'version_type' ||
-                            k.toLowerCase() === 'version type' ||
-                            k.toLowerCase() === 'version_id' ||
-                            k.toLowerCase() === 'version id',
-                        ) ||
-                          Object.values(item as Record<string, unknown>).some(
-                            (val) =>
-                              typeof val === 'string' &&
-                              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-                                val,
-                              ),
-                          )),
+                {response?.evidence &&
+                  Object.entries(response.evidence).map(([key, items]) => {
+                    // Defensive check: ensure items is an array
+                    if (!Array.isArray(items)) {
+                      return null;
+                    }
+
+                    // Check if this is a "versions" evidence group
+                    const isVersionsEvidence =
+                      key.toLowerCase() === 'versions' ||
+                      key.toLowerCase().includes('version') ||
+                      items.some(
+                        (item: unknown) =>
+                          typeof item === 'object' &&
+                          item !== null &&
+                          (Object.keys(item as Record<string, unknown>).some(
+                            (k) =>
+                              k.toLowerCase() === 'version_type' ||
+                              k.toLowerCase() === 'version type' ||
+                              k.toLowerCase() === 'version_id' ||
+                              k.toLowerCase() === 'version id',
+                          ) ||
+                            Object.values(item as Record<string, unknown>).some(
+                              (val) =>
+                                typeof val === 'string' &&
+                                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                                  val,
+                                ),
+                            )),
+                      );
+
+                    // Check if this is a "shots" evidence group
+                    const isShotsEvidence =
+                      key.toLowerCase() === 'shots' ||
+                      key.toLowerCase().includes('shot') ||
+                      items.some(
+                        (item: unknown) =>
+                          typeof item === 'object' &&
+                          item !== null &&
+                          (Object.keys(item as Record<string, unknown>).some(
+                            (k) =>
+                              k.toLowerCase() === 'shot_code' ||
+                              k.toLowerCase() === 'shot code' ||
+                              k.toLowerCase() === 'shotcode',
+                          ) ||
+                            Object.values(item as Record<string, unknown>).some(
+                              (val) => typeof val === 'string' && /^\d{3}_\d{3}$/.test(val),
+                            )),
+                      );
+
+                    return (
+                      <div key={key} className="audit-trail-group" style={{ marginBottom: '24px' }}>
+                        <h3>{key}</h3>
+                        {items.length > 0 ? (
+                          <div className="audit-trail-items">
+                            {/* Use ShotsAuditCard for shots evidence */}
+                            {isShotsEvidence ? (
+                              <ShotsAuditCard shots={items as Array<Record<string, unknown>>} />
+                            ) : isVersionsEvidence ? (
+                              // Use VersionAuditCard for versions evidence
+                              items.map((item: unknown, idx: number) => {
+                                if (typeof item !== 'object' || item === null) {
+                                  return null;
+                                }
+                                return (
+                                  <VersionAuditCard
+                                    key={idx}
+                                    version={item as Record<string, unknown>}
+                                  />
+                                );
+                              })
+                            ) : (
+                              // Fallback to generic audit trail for other evidence
+                              items.map((item: unknown, idx: number) => {
+                                if (typeof item !== 'object' || item === null) {
+                                  return null;
+                                }
+                                const itemRecord = item as Record<string, unknown>;
+                                const storageUri =
+                                  itemRecord['storage_uri'] ||
+                                  itemRecord['Storage URI'] ||
+                                  itemRecord['storageURI'];
+                                const otherFields = Object.entries(itemRecord).filter(
+                                  ([k]) =>
+                                    k.toLowerCase() !== 'storage_uri' &&
+                                    k !== 'Storage URI' &&
+                                    k !== 'storageURI',
+                                );
+
+                                return (
+                                  <div key={idx} className="audit-trail-item">
+                                    {otherFields.length > 0 && (
+                                      <div className="audit-trail-metadata">
+                                        {otherFields.map(([fieldKey, val]) => {
+                                          const isDateField =
+                                            fieldKey.toLowerCase() === 'created_at' ||
+                                            fieldKey.toLowerCase() === 'created at' ||
+                                            fieldKey.toLowerCase() === 'createdat';
+                                          const displayValue: string =
+                                            isDateField && val !== null && val !== undefined
+                                              ? formatDateTime(String(val))
+                                              : val !== null && val !== undefined
+                                                ? String(val)
+                                                : '-';
+                                          return (
+                                            <div key={fieldKey} className="audit-trail-field">
+                                              <span className="audit-trail-field-label">
+                                                {fieldKey}:
+                                              </span>
+                                              <span className="audit-trail-field-value">
+                                                {displayValue}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    {storageUri != null && String(storageUri).trim() !== '' && (
+                                      <div className="audit-trail-uri">
+                                        <span className="audit-trail-field-label">Locator:</span>
+                                        <a
+                                          href={String(storageUri)}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="audit-trail-uri-link"
+                                        >
+                                          {String(storageUri)}
+                                        </a>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        ) : (
+                          <p className="page-empty">No audit information found</p>
+                        )}
+                      </div>
                     );
-
-                  // Check if this is a "shots" evidence group
-                  const isShotsEvidence =
-                    key.toLowerCase() === 'shots' ||
-                    key.toLowerCase().includes('shot') ||
-                    items.some(
-                      (item: unknown) =>
-                        typeof item === 'object' &&
-                        item !== null &&
-                        (Object.keys(item as Record<string, unknown>).some(
-                          (k) =>
-                            k.toLowerCase() === 'shot_code' ||
-                            k.toLowerCase() === 'shot code' ||
-                            k.toLowerCase() === 'shotcode',
-                        ) ||
-                          Object.values(item as Record<string, unknown>).some(
-                            (val) => typeof val === 'string' && /^\d{3}_\d{3}$/.test(val),
-                          )),
-                    );
-
-                  return (
-                    <div key={key} className="audit-trail-group" style={{ marginBottom: '24px' }}>
-                      <h3>{key}</h3>
-                      {items.length > 0 ? (
-                        <div className="audit-trail-items">
-                          {/* Use ShotsAuditCard for shots evidence */}
-                          {isShotsEvidence ? (
-                            <ShotsAuditCard shots={items as Array<Record<string, unknown>>} />
-                          ) : isVersionsEvidence ? (
-                            // Use VersionAuditCard for versions evidence
-                            items.map((item: unknown, idx: number) => {
-                              if (typeof item !== 'object' || item === null) {
-                                return null;
-                              }
-                              return (
-                                <VersionAuditCard
-                                  key={idx}
-                                  version={item as Record<string, unknown>}
-                                />
-                              );
-                            })
-                          ) : (
-                            // Fallback to generic audit trail for other evidence
-                            items.map((item: unknown, idx: number) => {
-                              if (typeof item !== 'object' || item === null) {
-                                return null;
-                              }
-                              const itemRecord = item as Record<string, unknown>;
-                              const storageUri =
-                                itemRecord['storage_uri'] ||
-                                itemRecord['Storage URI'] ||
-                                itemRecord['storageURI'];
-                              const otherFields = Object.entries(itemRecord).filter(
-                                ([k]) =>
-                                  k.toLowerCase() !== 'storage_uri' &&
-                                  k !== 'Storage URI' &&
-                                  k !== 'storageURI',
-                              );
-
-                              return (
-                                <div key={idx} className="audit-trail-item">
-                                  {otherFields.length > 0 && (
-                                    <div className="audit-trail-metadata">
-                                      {otherFields.map(([fieldKey, val]) => {
-                                        const isDateField =
-                                          fieldKey.toLowerCase() === 'created_at' ||
-                                          fieldKey.toLowerCase() === 'created at' ||
-                                          fieldKey.toLowerCase() === 'createdat';
-                                        const displayValue: string =
-                                          isDateField && val !== null && val !== undefined
-                                            ? formatDateTime(String(val))
-                                            : val !== null && val !== undefined
-                                              ? String(val)
-                                              : '-';
-                                        return (
-                                          <div key={fieldKey} className="audit-trail-field">
-                                            <span className="audit-trail-field-label">
-                                              {fieldKey}:
-                                            </span>
-                                            <span className="audit-trail-field-value">
-                                              {displayValue}
-                                            </span>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                  {storageUri != null && String(storageUri).trim() !== '' && (
-                                    <div className="audit-trail-uri">
-                                      <span className="audit-trail-field-label">Locator:</span>
-                                      <a
-                                        href={String(storageUri)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="audit-trail-uri-link"
-                                      >
-                                        {String(storageUri)}
-                                      </a>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      ) : (
-                        <p className="page-empty">No audit information found</p>
-                      )}
-                    </div>
-                  );
-                })}
+                  })}
               </div>
             </div>
           )}

@@ -655,12 +655,37 @@ Return JSON now:"""
                 confidence=confidence
             )
 
+        # PATH 2b: Weak execute - clear intent with all params but lower confidence
+        # Only applies when intent is fully specified (no missing params, no ambiguity)
+        if (
+            intent_id
+            and intent
+            and confidence >= settings.ask_nl_confidence_execute_weak_min
+            and confidence < settings.ask_nl_confidence_min
+            and not ambiguity
+            and not actual_missing
+        ):
+            _trace(trace_id, "nl_decision", {
+                "routing_status": "ok",
+                "reason": "confidence >= weak execute threshold, no ambiguity, all required params present",
+                "confidence": confidence,
+                "execute_threshold": settings.ask_nl_confidence_min,
+                "weak_execute_threshold": settings.ask_nl_confidence_execute_weak_min,
+                "intent_id": intent_id
+            })
+            return RoutingResult(
+                status=RoutingStatus.OK,
+                intent_id=intent_id,
+                params=params,
+                confidence=confidence
+            )
+
         # PATH 3: All other cases → UNANSWERABLE
         # This includes: low confidence, no valid intent_id, or missing params on clarification attempt
         if not intent_id:
             reason = "no valid intent identified"
-        elif confidence < settings.ask_nl_confidence_min:
-            reason = f"confidence {confidence:.2f} below execute threshold {settings.ask_nl_confidence_min}"
+        elif confidence < settings.ask_nl_confidence_execute_weak_min:
+            reason = f"confidence {confidence:.2f} below weak execute threshold {settings.ask_nl_confidence_execute_weak_min}"
         elif actual_missing:
             reason = f"missing required params: {actual_missing}"
         else:
