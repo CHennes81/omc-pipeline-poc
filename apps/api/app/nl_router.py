@@ -581,30 +581,16 @@ Return JSON now:"""
 
         # PATH 1: First attempt with clarification signal → NEEDS_CLARIFICATION
         # This handles missing params, ambiguity, or other resolvable uncertainty
-        # BUT only if confidence meets clarify threshold (fail safely if too uncertain)
+        # Return NEEDS_CLARIFICATION if missing_params OR ambiguity.candidates present (regardless of confidence)
         if not is_clarification and has_clarification_signal:
-            # Enforce clarify threshold: don't clarify if confidence is too low
-            if confidence < settings.ask_nl_confidence_clarify_min:
-                _trace(trace_id, "nl_decision", {
-                    "routing_status": "unanswerable",
-                    "reason": f"confidence {confidence:.2f} below clarify threshold {settings.ask_nl_confidence_clarify_min}",
-                    "confidence": confidence,
-                    "clarify_threshold": settings.ask_nl_confidence_clarify_min,
-                    "missing_params": actual_missing if intent_id else missing_params,
-                    "has_ambiguity": bool(ambiguity),
-                    "intent_id": intent_id
-                })
-                return RoutingResult(
-                    status=RoutingStatus.UNANSWERABLE,
-                    error_code="confidence_too_low_for_clarification",
-                    error_message=f"Cannot clarify: confidence {confidence:.2f} below threshold {settings.ask_nl_confidence_clarify_min}"
-                )
-
-            # Normalize and validate ambiguity candidates if present
+            # Check for missing_params or ambiguity.candidates (expected workflow outcomes)
+            has_missing_params = bool(actual_missing if intent_id else missing_params)
+            has_ambiguity_candidates = False
             normalized_candidates = None
             if ambiguity:
                 raw_candidates = ambiguity.get("candidates", [])
                 normalized_candidates = self._normalize_ambiguity_candidates(raw_candidates)
+                has_ambiguity_candidates = bool(normalized_candidates)
                 # Update ambiguity dict with normalized candidates
                 if normalized_candidates:
                     ambiguity = {"candidates": normalized_candidates}
@@ -612,37 +598,40 @@ Return JSON now:"""
                     # Empty candidates list - fall back to generic clarification
                     ambiguity = None
 
-            # ALWAYS generate clarification message deterministically from router
-            # DO NOT use LLM-provided user_message verbatim (per Appendix G requirements)
-            llm_original_message = user_message  # Preserve for trace logging
-            router_generated_message = self._generate_clarification_message(
-                intent_id=intent_id,
-                ambiguity=ambiguity,
-                missing_params=actual_missing if intent_id else missing_params,
-                params=params
-            )
+            # If missing_params or ambiguity.candidates, always return NEEDS_CLARIFICATION (expected outcome)
+            # This is an expected workflow state, not an error, so we clarify regardless of confidence
+            if has_missing_params or has_ambiguity_candidates:
+                # ALWAYS generate clarification message deterministically from router
+                # DO NOT use LLM-provided user_message verbatim (per Appendix G requirements)
+                llm_original_message = user_message  # Preserve for trace logging
+                router_generated_message = self._generate_clarification_message(
+                    intent_id=intent_id,
+                    ambiguity=ambiguity,
+                    missing_params=actual_missing if intent_id else missing_params,
+                    params=params
+                )
 
-            _trace(trace_id, "nl_decision", {
-                "routing_status": "needs_clarification",
-                "reason": "first attempt with missing params, ambiguity, or clarification signal",
-                "confidence": confidence,
-                "clarify_threshold": settings.ask_nl_confidence_clarify_min,
-                "missing_params": actual_missing if intent_id else missing_params,
-                "has_ambiguity": bool(ambiguity),
-                "intent_id": intent_id,
-                "normalized_ambiguity_candidates": normalized_candidates if normalized_candidates else None,
-                "llm_user_message": llm_original_message,  # LLM's original message (for trace only)
-                "router_generated_message": router_generated_message  # Router-generated message (used in response)
-            })
-            return RoutingResult(
-                status=RoutingStatus.NEEDS_CLARIFICATION,
-                intent_id=intent_id,
-                params=params,
-                confidence=confidence,
-                missing_params=actual_missing if intent_id else missing_params,
-                ambiguity=ambiguity,
-                user_message=router_generated_message  # Router-generated, deterministic message
-            )
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "needs_clarification",
+                    "reason": "first attempt with missing params or ambiguity candidates (expected workflow outcome)",
+                    "confidence": confidence,
+                    "missing_params": actual_missing if intent_id else missing_params,
+                    "has_ambiguity": bool(ambiguity),
+                    "intent_id": intent_id,
+                    "normalized_ambiguity_candidates": normalized_candidates if normalized_candidates else None,
+                    "llm_user_message": llm_original_message,  # LLM's original message (for trace only)
+                    "router_generated_message": router_generated_message  # Router-generated message (used in response)
+                })
+                return RoutingResult(
+                    status=RoutingStatus.NEEDS_CLARIFICATION,
+                    intent_id=intent_id,
+                    params=params,
+                    confidence=confidence,
+                    missing_params=actual_missing if intent_id else missing_params,
+                    ambiguity=ambiguity,
+                    user_message=router_generated_message  # Router-generated, deterministic message
+                )
+            # If neither missing_params nor ambiguity.candidates, fall through to PATH 3 (UNANSWERABLE)
 
         # PATH 2: Valid intent with high confidence and all params → OK (executable)
         if (

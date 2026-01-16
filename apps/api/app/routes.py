@@ -567,25 +567,13 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session):
         )
 
     elif routing_result.status == nl_router.RoutingStatus.UNANSWERABLE:
-        # Map to unanswerable error
-        _log_ask_failure(
-            production_code=request.production_code,
-            question=request.question,
-            template_name=routing_result.intent_id,
+        # Return HTTP 200 with unanswerable response (expected workflow outcome, not an error)
+        return schemas.AskUnanswerableResponse(
+            status="unanswerable",
             error_code=routing_result.error_code or "unanswerable_question",
-            error_category="unanswerable_question",
-            exception_message=routing_result.error_message or "Question could not be mapped to a supported intent",
-            stack_trace=None,
-            mode="nl",
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": routing_result.error_code or "unanswerable_question",
-                "message": routing_result.error_message or "Question could not be mapped to a supported intent",
-                "category": "unanswerable_question"
-            }
+            message=routing_result.error_message or "Question could not be mapped to a supported intent",
+            intent_id=routing_result.intent_id,
+            confidence=routing_result.confidence
         )
 
     else:  # ERROR

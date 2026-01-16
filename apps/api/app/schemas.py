@@ -149,6 +149,15 @@ class AskClarificationResponse(BaseModel):
     missing_params: Optional[List[str]] = None
 
 
+class AskUnanswerableResponse(BaseModel):
+    """Response when NL routing cannot answer the question."""
+    status: str = "unanswerable"
+    error_code: str
+    message: str
+    intent_id: Optional[str] = None
+    confidence: Optional[float] = None
+
+
 # Import/Seed schemas
 class SeedRequest(BaseModel):
     mode: Optional[str] = None
