@@ -549,50 +549,103 @@ Return JSON now:"""
         Returns:
             RoutingResult if confirmation/rejection detected, None otherwise
         """
-        question_lower = question.strip().lower()
+        # Normalize: lowercase, strip whitespace, remove surrounding punctuation
+        normalized = question.strip().lower()
+        # Remove leading/trailing punctuation but keep internal punctuation
+        normalized = normalized.strip('.,!?;:')
 
-        # Check for confirmation patterns
-        confirmation_patterns = ["yes", "y", "ok", "okay", "sure", "run it", "do it", "go ahead", "proceed", "execute"]
-        is_confirmation = any(pattern in question_lower for pattern in confirmation_patterns)
+        # Split into words for exact matching
+        words = normalized.split()
 
-        # Check for rejection patterns
-        rejection_patterns = ["no", "nope", "wrong", "different", "cancel", "stop"]
-        is_rejection = any(pattern in question_lower for pattern in rejection_patterns)
+        # Only process short responses (<= 3 words)
+        if len(words) > 3:
+            return None
 
-        # If question is very short and matches confirmation/rejection, treat as such
-        if len(question_lower.split()) <= 3:
-            if is_confirmation and not is_rejection:
-                # User confirmed - execute the previous intent
-                # Use params from current LLM response if available, otherwise try to extract from original question
-                confirmed_params = current_params.copy() if current_params else {}
+        # Exact token matches for confirmation
+        confirmation_tokens = {"y", "yes", "ok", "okay", "sure"}
+        confirmation_phrases = {"run it", "do it", "go ahead", "proceed", "execute"}
 
-                # If params are missing and we have original_question, try to extract from it
-                if not confirmed_params and "original_question" in session_context:
-                    original_question = session_context.get("original_question")
-                    if isinstance(original_question, str):
-                        # Simple extraction: look for shot_code pattern
-                        shot_match = re.search(r'(\d{3}_\d{3})', original_question)
-                        if shot_match:
-                            confirmed_params["shot_code"] = shot_match.group(1)
-                        # Look for production_code pattern
-                        prod_match = re.search(r'\b([A-Z0-9]{3,10})\b', original_question)
-                        if prod_match:
-                            confirmed_params["production_code"] = prod_match.group(1)
+        # Exact token matches for rejection
+        rejection_tokens = {"n", "no", "nope", "wrong", "different", "cancel", "stop"}
 
-                # Return OK to execute the intent (confidence check bypassed for confirmation)
-                return RoutingResult(
-                    status=RoutingStatus.OK,
-                    intent_id=previous_intent_id,
-                    params=confirmed_params,
-                    confidence=1.0  # High confidence for user-confirmed execution
-                )
-            elif is_rejection:
-                # User rejected - return UNANSWERABLE
-                return RoutingResult(
-                    status=RoutingStatus.UNANSWERABLE,
-                    error_code="user_rejected_confirmation",
-                    error_message="Please rephrase your question or choose from the supported questions."
-                )
+        # Check for exact matches
+        is_confirmation = False
+        is_rejection = False
+
+        # Check token matches
+        for word in words:
+            if word in confirmation_tokens:
+                is_confirmation = True
+            if word in rejection_tokens:
+                is_rejection = True
+
+        # Check phrase matches (exact phrase in normalized string)
+        normalized_phrase = " ".join(words)
+        if normalized_phrase in confirmation_phrases:
+            is_confirmation = True
+
+        # If both appear, treat as neither and fall through
+        if is_confirmation and is_rejection:
+            return None
+
+        if is_confirmation:
+            # User confirmed - execute the previous intent
+            # Use params from current LLM response if available, otherwise try to extract from original question
+            confirmed_params = current_params.copy() if current_params else {}
+
+            # If params are missing and we have original_question, try to extract shot_code from it
+            if not confirmed_params.get("shot_code") and "original_question" in session_context:
+                original_question = session_context.get("original_question")
+                if isinstance(original_question, str):
+                    # Simple extraction: look for shot_code pattern
+                    shot_match = re.search(r'(\d{3}_\d{3})', original_question)
+                    if shot_match:
+                        confirmed_params["shot_code"] = shot_match.group(1)
+
+            # Validate required params before returning OK
+            intent = self.registry.get_intent(previous_intent_id)
+            if intent:
+                required_param_names = list(intent.get("required_params", {}).keys())
+                missing_required = [p for p in required_param_names if p not in confirmed_params]
+
+                if missing_required:
+                    # Check if shot_code is missing (most common case)
+                    if "shot_code" in missing_required:
+                        return RoutingResult(
+                            status=RoutingStatus.UNANSWERABLE,
+                            error_code="missing_required_params_after_confirmation",
+                            error_message="Please re-ask your question and include the shot code (e.g., 011_021)."
+                        )
+                    else:
+                        return RoutingResult(
+                            status=RoutingStatus.UNANSWERABLE,
+                            error_code="missing_required_params_after_confirmation",
+                            error_message="Please re-ask your question with all required information."
+                        )
+
+                # Validate params against schema
+                validation_error = self._validate_params(previous_intent_id, confirmed_params)
+                if validation_error:
+                    return RoutingResult(
+                        status=RoutingStatus.UNANSWERABLE,
+                        error_code="invalid_params_after_confirmation",
+                        error_message="Please re-ask your question with valid parameters."
+                    )
+
+            # Return OK to execute the intent (confidence check bypassed for confirmation)
+            return RoutingResult(
+                status=RoutingStatus.OK,
+                intent_id=previous_intent_id,
+                params=confirmed_params,
+                confidence=1.0  # High confidence for user-confirmed execution
+            )
+        elif is_rejection:
+            # User rejected - return UNANSWERABLE
+            return RoutingResult(
+                status=RoutingStatus.UNANSWERABLE,
+                error_code="user_rejected_confirmation",
+                error_message="Please rephrase your question or choose from the supported questions."
+            )
 
         # Not a clear confirmation/rejection - return None to continue normal routing
         return None
