@@ -40,11 +40,20 @@ const TEMPLATE_QUESTIONS = [
   { template: 'archive_status', question: 'What is the archive status for production EXFTR?' },
 ];
 
+interface Message {
+  id: string;
+  role: 'user' | 'app';
+  text: string;
+  ts: number;
+  kind?: 'normal' | 'clarification' | 'error';
+}
+
 export function AskPage() {
-  const [question, setQuestion] = useState('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [draftText, setDraftText] = useState('');
+  const [sessionContext, setSessionContext] = useState<Record<string, unknown> | null>(null);
+  const [pendingClarification, setPendingClarification] = useState(false);
   const [response, setResponse] = useState<AskResponse | null>(null);
-  const [clarification, setClarification] = useState<AskClarificationResponse | null>(null);
-  const [unanswerable, setUnanswerable] = useState<AskUnanswerableResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<AskError | null>(null);
   const [showSupportedQuestions, setShowSupportedQuestions] = useState(false);
@@ -54,9 +63,6 @@ export function AskPage() {
   // NL mode state
   const [askConfig, setAskConfig] = useState<AskConfig | null>(null);
   const [currentMode, setCurrentMode] = useState<'deterministic' | 'nl'>('deterministic');
-  const [clarificationContext, setClarificationContext] = useState<Record<string, unknown> | null>(
-    null,
-  );
 
   // Load Ask config on mount
   useEffect(() => {
@@ -76,65 +82,126 @@ export function AskPage() {
   }, []);
 
   const handleAsk = async () => {
-    if (!question.trim()) return;
+    if (!draftText.trim()) return;
+
+    const userMessageText = draftText.trim();
+    const isClarification = pendingClarification;
+
+    // Log outgoing payload
+    console.log('Ask request:', {
+      question: userMessageText,
+      is_clarification: isClarification,
+      session_context: sessionContext,
+    });
+
+    // Add user message to chat
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      text: userMessageText,
+      ts: Date.now(),
+      kind: 'normal',
+    };
+    setMessages((prev) => [...prev, userMessage]);
+    setDraftText(''); // Clear draft immediately
+
     try {
       setLoading(true);
       setError(null);
-      setClarification(null);
 
       const result = await api.askQuestion(
         productionCode,
-        question,
+        userMessageText, // Send ONLY the current draft text
         currentMode,
-        clarificationContext || undefined,
+        sessionContext || undefined, // Use stored sessionContext
       );
 
-      // Check result status and handle accordingly
+      // Log routing status
+      const routingStatus = 'status' in result ? result.status : 'ok';
+      console.log('Routing status:', routingStatus);
+
+      // Add app response as message bubble
+      let appMessageText = '';
+      let appMessageKind: 'normal' | 'clarification' | 'error' = 'normal';
+
       if ('status' in result) {
         if (result.status === 'needs_clarification') {
-          setClarification(result as AskClarificationResponse);
-          setClarificationContext({
-            original_question: question,
-            intent_id: result.intent_id,
+          const clarificationResult = result as AskClarificationResponse;
+          appMessageText = clarificationResult.user_message || 'Could you provide more details?';
+          appMessageKind = 'clarification';
+
+          // Update sessionContext from response (replace, don't merge)
+          setSessionContext({
+            original_question: userMessageText,
+            intent_id: clarificationResult.intent_id,
           });
+          setPendingClarification(true);
           setResponse(null);
-          setUnanswerable(null);
         } else if (result.status === 'unanswerable') {
-          setUnanswerable(result as AskUnanswerableResponse);
-          setClarification(null);
-          setClarificationContext(null);
+          const unanswerableResult = result as AskUnanswerableResponse;
+          appMessageText = unanswerableResult.message || 'Question could not be answered';
+          appMessageKind = 'error';
+          setSessionContext(null);
+          setPendingClarification(false);
           setResponse(null);
         } else {
-          // Normal response (status not present or other)
-          setResponse(result as AskResponse);
-          setClarification(null);
-          setUnanswerable(null);
-          setClarificationContext(null);
+          // Normal response
+          const normalResult = result as AskResponse;
+          appMessageText = normalResult.answer || 'No answer provided';
+          appMessageKind = 'normal';
+          setResponse(normalResult);
+          setSessionContext(null);
+          setPendingClarification(false);
         }
       } else {
-        // Fallback: assume normal response if no status field
-        setResponse(result as AskResponse);
-        setClarification(null);
-        setUnanswerable(null);
-        setClarificationContext(null);
+        // Fallback: assume normal response
+        const normalResult = result as AskResponse;
+        appMessageText = normalResult.answer || 'No answer provided';
+        appMessageKind = 'normal';
+        setResponse(normalResult);
+        setSessionContext(null);
+        setPendingClarification(false);
       }
+
+      const appMessage: Message = {
+        id: `app-${Date.now()}`,
+        role: 'app',
+        text: appMessageText,
+        ts: Date.now(),
+        kind: appMessageKind,
+      };
+      setMessages((prev) => [...prev, appMessage]);
     } catch (err) {
       // API client throws AskError objects
+      let errorMessage = 'Failed to ask question';
       if (err && typeof err === 'object' && 'httpStatus' in err && 'code' in err) {
-        setError(err as AskError);
+        const askError = err as AskError;
+        setError(askError);
+        errorMessage = askError.message || errorMessage;
       } else {
         // Fallback for unexpected error shapes
-        setError({
+        const fallbackError: AskError = {
           httpStatus: 500,
           url: `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/ask`,
           code: 'unknown_error',
-          message: err instanceof Error ? err.message : 'Failed to ask question',
+          message: err instanceof Error ? err.message : errorMessage,
           timestamp: new Date().toISOString(),
-        });
+        };
+        setError(fallbackError);
+        errorMessage = fallbackError.message;
       }
+
+      const errorMessageBubble: Message = {
+        id: `app-error-${Date.now()}`,
+        role: 'app',
+        text: errorMessage,
+        ts: Date.now(),
+        kind: 'error',
+      };
+      setMessages((prev) => [...prev, errorMessageBubble]);
       setResponse(null);
-      setClarification(null);
-      setUnanswerable(null);
+      setSessionContext(null);
+      setPendingClarification(false);
     } finally {
       setLoading(false);
     }
@@ -144,15 +211,16 @@ export function AskPage() {
     const newMode = currentMode === 'deterministic' ? 'nl' : 'deterministic';
     setCurrentMode(newMode);
     // Clear previous results when switching modes
+    setMessages([]);
+    setDraftText('');
     setResponse(null);
-    setClarification(null);
-    setUnanswerable(null);
-    setClarificationContext(null);
+    setSessionContext(null);
+    setPendingClarification(false);
     setError(null);
   };
 
   const handleTemplateClick = (templateQuestion: string) => {
-    setQuestion(templateQuestion);
+    setDraftText(templateQuestion);
   };
 
   return (
@@ -229,103 +297,130 @@ export function AskPage() {
             )}
           </div>
 
-          <div className="page-section">
-            <label className="page-label">
-              <strong>Question:</strong>
-              <textarea
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                className="page-textarea"
-                placeholder={
-                  currentMode === 'nl'
-                    ? 'Ask your question in natural language...'
-                    : 'Enter your question or select from supported questions above'
-                }
-              />
-            </label>
-            {clarificationContext && (
-              <div
+          {/* Chat messages */}
+          <div
+            className="page-section"
+            style={{
+              minHeight: '400px',
+              maxHeight: '600px',
+              overflowY: 'auto',
+              marginBottom: '16px',
+            }}
+          >
+            {messages.length === 0 ? (
+              <p
                 style={{
-                  marginBottom: '12px',
-                  padding: '8px',
-                  backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                  border: '1px solid rgba(255, 193, 7, 0.3)',
-                  borderRadius: '4px',
-                  fontSize: '13px',
+                  color: 'var(--dashboard-text-secondary)',
+                  textAlign: 'center',
+                  padding: '24px',
                 }}
               >
-                <strong>Note:</strong> Providing clarification for previous question
+                Start a conversation by asking a question
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                      width: '100%',
+                    }}
+                  >
+                    <div
+                      style={{
+                        maxWidth: '70%',
+                        padding: '12px 16px',
+                        borderRadius: '12px',
+                        backgroundColor:
+                          msg.role === 'user'
+                            ? 'var(--dashboard-accent)'
+                            : msg.kind === 'error'
+                              ? 'rgba(239, 68, 68, 0.1)'
+                              : msg.kind === 'clarification'
+                                ? 'rgba(255, 193, 7, 0.1)'
+                                : 'var(--dashboard-surface)',
+                        border:
+                          msg.role === 'user'
+                            ? 'none'
+                            : msg.kind === 'error'
+                              ? '1px solid rgba(239, 68, 68, 0.3)'
+                              : msg.kind === 'clarification'
+                                ? '1px solid rgba(255, 193, 7, 0.3)'
+                                : '1px solid var(--dashboard-border)',
+                        color:
+                          msg.role === 'user'
+                            ? 'white'
+                            : msg.kind === 'error'
+                              ? '#fca5a5'
+                              : 'var(--dashboard-text-primary)',
+                        fontSize: '14px',
+                        lineHeight: '1.5',
+                        wordWrap: 'break-word',
+                      }}
+                    >
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {loading && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                    <div
+                      style={{
+                        padding: '12px 16px',
+                        borderRadius: '12px',
+                        backgroundColor: 'var(--dashboard-surface)',
+                        border: '1px solid var(--dashboard-border)',
+                        color: 'var(--dashboard-text-secondary)',
+                        fontSize: '14px',
+                      }}
+                    >
+                      Thinking...
+                    </div>
+                  </div>
+                )}
               </div>
             )}
+          </div>
+
+          {/* Input area */}
+          <div className="page-section">
+            <label className="page-label">
+              <strong>{pendingClarification ? 'Clarification:' : 'Question:'}</strong>
+              <textarea
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleAsk();
+                  }
+                }}
+                className="page-textarea"
+                placeholder={
+                  pendingClarification
+                    ? 'Provide clarification...'
+                    : currentMode === 'nl'
+                      ? 'Ask your question in natural language...'
+                      : 'Enter your question or select from supported questions above'
+                }
+                style={{ minHeight: '80px' }}
+              />
+            </label>
             <button
               onClick={handleAsk}
-              disabled={loading || !question.trim()}
+              disabled={loading || !draftText.trim()}
               className="page-button"
             >
-              {loading ? 'Asking...' : 'Ask'}
+              {loading ? 'Asking...' : pendingClarification ? 'Send Clarification' : 'Ask'}
             </button>
           </div>
         </div>
 
-        {/* Right Column: Results */}
+        {/* Right Column: Results (for final answers with evidence) */}
         <div className="ask-right-column">
           {error && <AskErrorPanel error={error} />}
-
-          {/* Unanswerable response */}
-          {unanswerable && (
-            <div className="page-section">
-              <h2>Answer</h2>
-              <div className="page-info-box">
-                <AnswerText text={unanswerable.message || 'Question could not be answered'} />
-              </div>
-              {unanswerable.confidence !== null && unanswerable.confidence !== undefined && (
-                <p
-                  style={{
-                    marginTop: '12px',
-                    fontSize: '13px',
-                    color: 'var(--dashboard-text-secondary)',
-                  }}
-                >
-                  Confidence: {(unanswerable.confidence * 100).toFixed(0)}%
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Clarification needed */}
-          {clarification && (
-            <div className="page-section">
-              <h2>Clarification Needed</h2>
-              <div
-                style={{
-                  padding: '16px',
-                  backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                  border: '1px solid rgba(255, 193, 7, 0.3)',
-                  borderRadius: '4px',
-                  marginBottom: '16px',
-                }}
-              >
-                <p style={{ margin: '0 0 12px 0', fontSize: '15px' }}>
-                  {clarification.user_message}
-                </p>
-                {clarification.confidence !== null && clarification.confidence !== undefined && (
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: '13px',
-                      color: 'var(--dashboard-text-secondary)',
-                    }}
-                  >
-                    Confidence: {(clarification.confidence * 100).toFixed(0)}%
-                  </p>
-                )}
-              </div>
-              <p style={{ fontSize: '14px', color: 'var(--dashboard-text-secondary)' }}>
-                Please provide the requested information in the question box above and click Ask
-                again.
-              </p>
-            </div>
-          )}
 
           {response && (
             <div className="ask-results">

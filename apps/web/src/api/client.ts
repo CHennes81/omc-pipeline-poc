@@ -204,7 +204,7 @@ export const api = {
     mode?: string,
     clarificationContext?: Record<string, unknown>,
   ) =>
-    fetchJson<AskResponse | AskClarificationResponse>('/api/ask', {
+    fetchJson<AskResponse | AskClarificationResponse | AskUnanswerableResponse>('/api/ask', {
       method: 'POST',
       body: JSON.stringify({
         production_code: productionCode,
