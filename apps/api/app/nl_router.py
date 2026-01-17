@@ -248,6 +248,17 @@ class NLRouter:
                         error_message=validation_error
                     )
 
+            # Handle clarification attempts: check if user is confirming/rejecting a previous confirmation request
+            if is_clarification and session_context:
+                previous_intent_id = session_context.get("intent_id")
+                if previous_intent_id and isinstance(previous_intent_id, str):
+                    # Check if user's question is a confirmation or rejection
+                    confirmation_result = self._check_confirmation_response(
+                        question, previous_intent_id, session_context, intent_id, params
+                    )
+                    if confirmation_result:
+                        return confirmation_result
+
             # Apply confidence gating per Appendix G
             result = self._apply_confidence_gates(
                 trace_id=trace_id,
@@ -257,7 +268,8 @@ class NLRouter:
                 missing_params=missing_params,
                 ambiguity=ambiguity,
                 user_message=user_message,
-                is_clarification=is_clarification
+                is_clarification=is_clarification,
+                session_context=session_context
             )
 
             return result
@@ -517,6 +529,74 @@ Return JSON now:"""
 
         return None
 
+    def _check_confirmation_response(
+        self,
+        question: str,
+        previous_intent_id: str,
+        session_context: Dict[str, Any],
+        current_intent_id: Optional[str],
+        current_params: Dict[str, Any]
+    ) -> Optional[RoutingResult]:
+        """Check if user's question is a confirmation or rejection of a previous confirmation request.
+
+        Args:
+            question: User's response to confirmation prompt
+            previous_intent_id: Intent ID from previous clarification request
+            session_context: Session context containing previous params if available
+            current_intent_id: Intent ID from current LLM response (may be None for short confirmations)
+            current_params: Params from current LLM response
+
+        Returns:
+            RoutingResult if confirmation/rejection detected, None otherwise
+        """
+        question_lower = question.strip().lower()
+
+        # Check for confirmation patterns
+        confirmation_patterns = ["yes", "y", "ok", "okay", "sure", "run it", "do it", "go ahead", "proceed", "execute"]
+        is_confirmation = any(pattern in question_lower for pattern in confirmation_patterns)
+
+        # Check for rejection patterns
+        rejection_patterns = ["no", "nope", "wrong", "different", "cancel", "stop"]
+        is_rejection = any(pattern in question_lower for pattern in rejection_patterns)
+
+        # If question is very short and matches confirmation/rejection, treat as such
+        if len(question_lower.split()) <= 3:
+            if is_confirmation and not is_rejection:
+                # User confirmed - execute the previous intent
+                # Use params from current LLM response if available, otherwise try to extract from original question
+                confirmed_params = current_params.copy() if current_params else {}
+
+                # If params are missing and we have original_question, try to extract from it
+                if not confirmed_params and "original_question" in session_context:
+                    original_question = session_context.get("original_question")
+                    if isinstance(original_question, str):
+                        # Simple extraction: look for shot_code pattern
+                        shot_match = re.search(r'(\d{3}_\d{3})', original_question)
+                        if shot_match:
+                            confirmed_params["shot_code"] = shot_match.group(1)
+                        # Look for production_code pattern
+                        prod_match = re.search(r'\b([A-Z0-9]{3,10})\b', original_question)
+                        if prod_match:
+                            confirmed_params["production_code"] = prod_match.group(1)
+
+                # Return OK to execute the intent (confidence check bypassed for confirmation)
+                return RoutingResult(
+                    status=RoutingStatus.OK,
+                    intent_id=previous_intent_id,
+                    params=confirmed_params,
+                    confidence=1.0  # High confidence for user-confirmed execution
+                )
+            elif is_rejection:
+                # User rejected - return UNANSWERABLE
+                return RoutingResult(
+                    status=RoutingStatus.UNANSWERABLE,
+                    error_code="user_rejected_confirmation",
+                    error_message="Please rephrase your question or choose from the supported questions."
+                )
+
+        # Not a clear confirmation/rejection - return None to continue normal routing
+        return None
+
     def _apply_confidence_gates(
         self,
         trace_id: str,
@@ -526,7 +606,8 @@ Return JSON now:"""
         missing_params: List[str],
         ambiguity: Optional[Dict[str, Any]],
         user_message: Optional[str],
-        is_clarification: bool
+        is_clarification: bool,
+        session_context: Optional[Dict[str, Any]] = None
     ) -> RoutingResult:
         """Apply confidence gating logic per Appendix G.
 
@@ -679,6 +760,47 @@ Return JSON now:"""
                 params=params,
                 confidence=confidence
             )
+
+        # PATH 2c: Single-intent confirmation - fully specified intent but confidence below weak execute threshold
+        # Only on first attempt (not clarification)
+        if (
+            not is_clarification
+            and intent_id
+            and intent
+            and confidence < settings.ask_nl_confidence_execute_weak_min
+            and not actual_missing
+        ):
+            # Check if ambiguity is null/empty or normalizes to empty
+            has_ambiguity_candidates = False
+            if ambiguity:
+                raw_candidates = ambiguity.get("candidates", [])
+                normalized_candidates = self._normalize_ambiguity_candidates(raw_candidates)
+                has_ambiguity_candidates = bool(normalized_candidates)
+
+            if not has_ambiguity_candidates:
+                # Generate confirmation message
+                intent_desc = self._get_intent_user_facing_description(intent_id)
+                shot_code = params.get("shot_code")
+                shot_context = f" for shot {shot_code}" if shot_code else ""
+                confirmation_message = f"I can {intent_desc}{shot_context}. Do you want me to run that?"
+
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "needs_clarification",
+                    "reason": "low-confidence single intent; asking for confirmation",
+                    "confidence": confidence,
+                    "weak_execute_threshold": settings.ask_nl_confidence_execute_weak_min,
+                    "intent_id": intent_id,
+                    "confirmation_required": True
+                })
+                return RoutingResult(
+                    status=RoutingStatus.NEEDS_CLARIFICATION,
+                    intent_id=intent_id,
+                    params=params,
+                    confidence=confidence,
+                    missing_params=[],
+                    ambiguity=None,
+                    user_message=confirmation_message
+                )
 
         # PATH 3: All other cases → UNANSWERABLE
         # This includes: low confidence, no valid intent_id, or missing params on clarification attempt
