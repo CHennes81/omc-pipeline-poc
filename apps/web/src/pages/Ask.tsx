@@ -120,15 +120,12 @@ export function AskPage() {
       const routingStatus = 'status' in result ? result.status : 'ok';
       console.log('Routing status:', routingStatus);
 
-      // Add app response as message bubble
-      let appMessageText = '';
-      let appMessageKind: 'normal' | 'clarification' | 'error' = 'normal';
-
+      // Only add app bubble for needs_clarification or unanswerable (NOT for ok)
       if ('status' in result) {
         if (result.status === 'needs_clarification') {
           const clarificationResult = result as AskClarificationResponse;
-          appMessageText = clarificationResult.user_message || 'Could you provide more details?';
-          appMessageKind = 'clarification';
+          const appMessageText =
+            clarificationResult.user_message || 'Could you provide more details?';
 
           // Update sessionContext from response (replace, don't merge)
           setSessionContext({
@@ -137,40 +134,49 @@ export function AskPage() {
           });
           setPendingClarification(true);
           setResponse(null);
+
+          // Add app clarification bubble
+          const appMessage: Message = {
+            id: `app-${Date.now()}`,
+            role: 'app',
+            text: appMessageText,
+            ts: Date.now(),
+            kind: 'clarification',
+          };
+          setMessages((prev) => [...prev, appMessage]);
         } else if (result.status === 'unanswerable') {
           const unanswerableResult = result as AskUnanswerableResponse;
-          appMessageText = unanswerableResult.message || 'Question could not be answered';
-          appMessageKind = 'error';
+          const appMessageText = unanswerableResult.message || 'Question could not be answered';
+
           setSessionContext(null);
           setPendingClarification(false);
           setResponse(null);
+
+          // Add app error bubble
+          const appMessage: Message = {
+            id: `app-${Date.now()}`,
+            role: 'app',
+            text: appMessageText,
+            ts: Date.now(),
+            kind: 'error',
+          };
+          setMessages((prev) => [...prev, appMessage]);
         } else {
-          // Normal response
+          // Normal response (ok) - do NOT add app bubble, answer shows in right panel
           const normalResult = result as AskResponse;
-          appMessageText = normalResult.answer || 'No answer provided';
-          appMessageKind = 'normal';
           setResponse(normalResult);
           setSessionContext(null);
           setPendingClarification(false);
+          // No app bubble for ok responses
         }
       } else {
-        // Fallback: assume normal response
+        // Fallback: assume normal response (ok) - do NOT add app bubble
         const normalResult = result as AskResponse;
-        appMessageText = normalResult.answer || 'No answer provided';
-        appMessageKind = 'normal';
         setResponse(normalResult);
         setSessionContext(null);
         setPendingClarification(false);
+        // No app bubble for ok responses
       }
-
-      const appMessage: Message = {
-        id: `app-${Date.now()}`,
-        role: 'app',
-        text: appMessageText,
-        ts: Date.now(),
-        kind: appMessageKind,
-      };
-      setMessages((prev) => [...prev, appMessage]);
     } catch (err) {
       // API client throws AskError objects
       let errorMessage = 'Failed to ask question';
@@ -297,28 +303,20 @@ export function AskPage() {
             )}
           </div>
 
-          {/* Chat messages */}
-          <div
-            className="page-section"
-            style={{
-              minHeight: '400px',
-              maxHeight: '600px',
-              overflowY: 'auto',
-              marginBottom: '16px',
-            }}
-          >
+          {/* Chat messages - natural height, no scrolling */}
+          <div className="page-section" style={{ marginBottom: '16px' }}>
             {messages.length === 0 ? (
               <p
                 style={{
                   color: 'var(--dashboard-text-secondary)',
                   textAlign: 'center',
-                  padding: '24px',
+                  padding: '12px 0',
                 }}
               >
                 Start a conversation by asking a question
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {messages.map((msg) => (
                   <div
                     key={msg.id}
