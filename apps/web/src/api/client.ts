@@ -69,6 +69,11 @@ export interface AskClarificationResponse {
   intent_id?: string | null;
   confidence?: number | null;
   missing_params?: string[] | null;
+  ambiguity?: {
+    candidates?: string[];
+    clarification_kind?: string;
+    original_question?: string;
+  } | null;
 }
 
 export interface AskUnanswerableResponse {

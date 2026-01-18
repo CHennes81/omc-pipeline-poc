@@ -150,6 +150,22 @@ class NLRouter:
             "candidate_intents": candidate_intents
         })
 
+        # Handle deterministic ambiguity resolution for clarification attempts
+        if is_clarification and session_context:
+            clarification_kind = session_context.get("clarification_kind")
+            ambiguity_candidates = session_context.get("ambiguity_candidates")
+
+            if clarification_kind == "ambiguity" and isinstance(ambiguity_candidates, list) and len(ambiguity_candidates) > 0:
+                # Deterministic resolution - skip LLM call
+                resolution_result = self._resolve_ambiguity_deterministically(
+                    trace_id=trace_id,
+                    user_reply=question,
+                    ambiguity_candidates=ambiguity_candidates,
+                    session_context=session_context
+                )
+                if resolution_result:
+                    return resolution_result
+
         # Build routing prompt
         prompt = self._build_routing_prompt(question, session_context)
 
@@ -463,12 +479,14 @@ Return JSON now:"""
                         candidate_descriptions.append(desc)
 
                 if candidate_descriptions:
-                    if len(candidate_descriptions) == 2:
-                        message = f"Are you asking about {candidate_descriptions[0]} or {candidate_descriptions[1]}{shot_context}?"
-                    elif len(candidate_descriptions) == 3:
-                        message = f"Are you asking about {candidate_descriptions[0]}, {candidate_descriptions[1]}, or {candidate_descriptions[2]}{shot_context}?"
-                    else:
-                        message = f"Are you asking about {candidate_descriptions[0]}{shot_context}?"
+                    # Build numbered list of options
+                    numbered_options = []
+                    for idx, desc in enumerate(candidate_descriptions, start=1):
+                        numbered_options.append(f"{idx}) {desc}")
+
+                    options_text = "\n".join(numbered_options)
+                    shot_prefix = f"Which of these do you mean for shot {shot_code}?\n" if shot_code else "Which of these do you mean?\n"
+                    message = f"{shot_prefix}{options_text}\nReply with {', '.join(str(i) for i in range(1, len(candidate_descriptions) + 1))} or describe your choice."
                     return message
 
         # Case 2: Single intent but missing required parameters
@@ -528,6 +546,217 @@ Return JSON now:"""
                     return f"Parameter {param_name} does not match required pattern {pattern}"
 
         return None
+
+    def _resolve_ambiguity_deterministically(
+        self,
+        trace_id: str,
+        user_reply: str,
+        ambiguity_candidates: List[str],
+        session_context: Dict[str, Any]
+    ) -> Optional[RoutingResult]:
+        """Resolve ambiguity deterministically from user clarification.
+
+        Supports numeric selection (1, 2, 3) and free-text keyword matching.
+
+        Args:
+            trace_id: Trace ID for logging
+            user_reply: User's clarification text
+            ambiguity_candidates: Ordered list of intent_ids from prior clarification
+            session_context: Session context containing original_question
+
+        Returns:
+            RoutingResult if resolution succeeds, None if should fall through to normal routing
+        """
+        # Defensively strip original_question prefix if present
+        user_reply_clean = user_reply.strip()
+        original_question = session_context.get("original_question", "")
+        if isinstance(original_question, str) and user_reply_clean.startswith(original_question):
+            user_reply_clean = user_reply_clean[len(original_question):].strip()
+
+        selected_intent_id = None
+        selection_mode = None
+        keyword_scores = None
+
+        # Method 1: Numeric selection
+        numeric_match = re.match(r'^\s*(\d+)\s*$', user_reply_clean)
+        if numeric_match:
+            try:
+                N = int(numeric_match.group(1))
+                if 1 <= N <= len(ambiguity_candidates):
+                    selected_intent_id = ambiguity_candidates[N - 1]
+                    selection_mode = "index"
+                else:
+                    _trace(trace_id, "nl_decision", {
+                        "routing_status": "unanswerable",
+                        "reason": "deterministic_ambiguity_resolution: numeric choice out of range",
+                        "deterministic_ambiguity_resolution": True,
+                        "selection_mode": "index",
+                        "choice": N,
+                        "candidates_count": len(ambiguity_candidates)
+                    })
+                    return RoutingResult(
+                        status=RoutingStatus.UNANSWERABLE,
+                        error_code="clarification_choice_out_of_range",
+                        error_message=f"Please choose a number between 1 and {len(ambiguity_candidates)}."
+                    )
+            except (ValueError, IndexError):
+                # Fall through to keyword matching
+                pass
+
+        # Method 2: Free-text keyword matching
+        if not selected_intent_id:
+            # Normalize user reply: lowercase, strip punctuation, split on whitespace
+            normalized_reply = re.sub(r'[^\w\s]', ' ', user_reply_clean.lower())
+            user_tokens = set(normalized_reply.split())
+            user_tokens.discard('')  # Remove empty strings
+
+            if not user_tokens:
+                # Empty or only punctuation - cannot resolve
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "unanswerable",
+                    "reason": "deterministic_ambiguity_resolution: no meaningful tokens",
+                    "deterministic_ambiguity_resolution": True,
+                    "selection_mode": "keywords"
+                })
+                return RoutingResult(
+                    status=RoutingStatus.UNANSWERABLE,
+                    error_code="ambiguous_clarification_unresolved",
+                    error_message="Please provide more specific clarification."
+                )
+
+            # Score each candidate
+            scores = []
+            for candidate_id in ambiguity_candidates:
+                intent = self.registry.get_intent(candidate_id)
+                if not intent:
+                    continue
+
+                # Combine title and description for matching
+                title = (intent.get("title") or "").lower()
+                description = (intent.get("description") or "").lower()
+                combined_text = f"{title} {description}"
+
+                # Count matching tokens
+                score = sum(1 for token in user_tokens if token in combined_text)
+                scores.append((candidate_id, score))
+
+            keyword_scores = {candidate_id: score for candidate_id, score in scores}
+
+            # Sort by score descending
+            scores.sort(key=lambda x: x[1], reverse=True)
+
+            if len(scores) == 0:
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "unanswerable",
+                    "reason": "deterministic_ambiguity_resolution: no valid candidates",
+                    "deterministic_ambiguity_resolution": True,
+                    "selection_mode": "keywords"
+                })
+                return RoutingResult(
+                    status=RoutingStatus.UNANSWERABLE,
+                    error_code="ambiguous_clarification_unresolved",
+                    error_message="Unable to match your clarification to any option."
+                )
+
+            top_score = scores[0][1]
+            second_score = scores[1][1] if len(scores) > 1 else 0
+
+            # Select winner only if top_score > 0 and strictly greater than second
+            if top_score > 0 and top_score > second_score:
+                selected_intent_id = scores[0][0]
+                selection_mode = "keywords"
+            else:
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "unanswerable",
+                    "reason": "deterministic_ambiguity_resolution: no clear winner",
+                    "deterministic_ambiguity_resolution": True,
+                    "selection_mode": "keywords",
+                    "keyword_scores": keyword_scores
+                })
+                return RoutingResult(
+                    status=RoutingStatus.UNANSWERABLE,
+                    error_code="ambiguous_clarification_unresolved",
+                    error_message="Your clarification matches multiple options. Please be more specific or use a number (1, 2, 3)."
+                )
+
+        # Validate selected intent exists
+        if not selected_intent_id or not self.registry.get_intent(selected_intent_id):
+            _trace(trace_id, "nl_decision", {
+                "routing_status": "unanswerable",
+                "reason": "deterministic_ambiguity_resolution: selected intent not found",
+                "deterministic_ambiguity_resolution": True,
+                "selection_mode": selection_mode,
+                "selected_intent_id": selected_intent_id
+            })
+            return RoutingResult(
+                status=RoutingStatus.UNANSWERABLE,
+                error_code="invalid_intent_selection",
+                error_message="Selected intent is not available."
+            )
+
+        # Extract params from original_question if available
+        params = {}
+        original_question = session_context.get("original_question", "")
+        if isinstance(original_question, str):
+            # Extract shot_code if present
+            shot_match = re.search(r'(\d{3}_\d{3})', original_question)
+            if shot_match:
+                params["shot_code"] = shot_match.group(1)
+
+        # Validate required params
+        intent = self.registry.get_intent(selected_intent_id)
+        if intent:
+            required_param_names = list(intent.get("required_params", {}).keys())
+            missing_required = [p for p in required_param_names if p not in params]
+
+            if missing_required:
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "unanswerable",
+                    "reason": "deterministic_ambiguity_resolution: missing required params",
+                    "deterministic_ambiguity_resolution": True,
+                    "selection_mode": selection_mode,
+                    "selected_intent_id": selected_intent_id,
+                    "missing_params": missing_required
+                })
+                return RoutingResult(
+                    status=RoutingStatus.UNANSWERABLE,
+                    error_code="missing_params_after_clarification",
+                    error_message=f"Missing required information: {', '.join(missing_required)}."
+                )
+
+            # Validate params against schema
+            validation_error = self._validate_params(selected_intent_id, params)
+            if validation_error:
+                _trace(trace_id, "nl_decision", {
+                    "routing_status": "unanswerable",
+                    "reason": "deterministic_ambiguity_resolution: params validation failed",
+                    "deterministic_ambiguity_resolution": True,
+                    "selection_mode": selection_mode,
+                    "selected_intent_id": selected_intent_id,
+                    "validation_error": validation_error
+                })
+                return RoutingResult(
+                    status=RoutingStatus.UNANSWERABLE,
+                    error_code="invalid_params_after_clarification",
+                    error_message="Invalid parameters for selected option."
+                )
+
+        # Success - return OK with confidence=1.0 (bypasses all confidence gates)
+        _trace(trace_id, "nl_decision", {
+            "routing_status": "ok",
+            "reason": "deterministic_ambiguity_resolution: resolved successfully",
+            "deterministic_ambiguity_resolution": True,
+            "selection_mode": selection_mode,
+            "selected_intent_id": selected_intent_id,
+            "keyword_scores": keyword_scores,
+            "confidence": 1.0
+        })
+        return RoutingResult(
+            status=RoutingStatus.OK,
+            intent_id=selected_intent_id,
+            params=params,
+            confidence=1.0  # High confidence for deterministic resolution
+        )
 
     def _check_confirmation_response(
         self,
@@ -756,13 +985,26 @@ Return JSON now:"""
                     "llm_user_message": llm_original_message,  # LLM's original message (for trace only)
                     "router_generated_message": router_generated_message  # Router-generated message (used in response)
                 })
+
+                # Prepare session_context for ambiguity-based clarification
+                # Note: The frontend will receive this and should store it for the next request
+                # We include ambiguity info in the response for frontend to use
+                result_ambiguity = ambiguity
+                if has_ambiguity_candidates and normalized_candidates:
+                    # Store ambiguity context in the ambiguity dict for frontend to extract
+                    result_ambiguity = {
+                        "candidates": normalized_candidates,
+                        "clarification_kind": "ambiguity",
+                        "original_question": question  # Store original question for param extraction
+                    }
+
                 return RoutingResult(
                     status=RoutingStatus.NEEDS_CLARIFICATION,
                     intent_id=intent_id,
                     params=params,
                     confidence=confidence,
                     missing_params=actual_missing if intent_id else missing_params,
-                    ambiguity=ambiguity,
+                    ambiguity=result_ambiguity,
                     user_message=router_generated_message  # Router-generated, deterministic message
                 )
             # If neither missing_params nor ambiguity.candidates, fall through to PATH 3 (UNANSWERABLE)
@@ -835,7 +1077,7 @@ Return JSON now:"""
                 intent_desc = self._get_intent_user_facing_description(intent_id)
                 shot_code = params.get("shot_code")
                 shot_context = f" for shot {shot_code}" if shot_code else ""
-                confirmation_message = f"I can {intent_desc}{shot_context}. Do you want me to run that?"
+                confirmation_message = f"I can help you with {intent_desc}{shot_context}. Do you want me to run that?"
 
                 _trace(trace_id, "nl_decision", {
                     "routing_status": "needs_clarification",

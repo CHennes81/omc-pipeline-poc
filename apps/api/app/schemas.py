@@ -147,6 +147,7 @@ class AskClarificationResponse(BaseModel):
     intent_id: Optional[str] = None
     confidence: Optional[float] = None
     missing_params: Optional[List[str]] = None
+    ambiguity: Optional[Dict[str, Any]] = None
 
 
 class AskUnanswerableResponse(BaseModel):

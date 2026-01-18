@@ -128,10 +128,26 @@ export function AskPage() {
             clarificationResult.user_message || 'Could you provide more details?';
 
           // Update sessionContext from response (replace, don't merge)
-          setSessionContext({
+          // Check if this is ambiguity-based clarification
+          const isAmbiguityClarification =
+            clarificationResult.ambiguity &&
+            Array.isArray(clarificationResult.ambiguity.candidates) &&
+            clarificationResult.ambiguity.candidates.length > 0;
+
+          const newSessionContext: Record<string, unknown> = {
             original_question: userMessageText,
-            intent_id: clarificationResult.intent_id,
-          });
+          };
+
+          if (clarificationResult.intent_id) {
+            newSessionContext.intent_id = clarificationResult.intent_id;
+          }
+
+          if (isAmbiguityClarification) {
+            newSessionContext.clarification_kind = 'ambiguity';
+            newSessionContext.ambiguity_candidates = clarificationResult.ambiguity.candidates;
+          }
+
+          setSessionContext(newSessionContext);
           setPendingClarification(true);
           setResponse(null);
 

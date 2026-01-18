@@ -563,7 +563,8 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session):
             user_message=routing_result.user_message or "Could you provide more details?",
             intent_id=routing_result.intent_id,
             confidence=routing_result.confidence,
-            missing_params=routing_result.missing_params
+            missing_params=routing_result.missing_params,
+            ambiguity=routing_result.ambiguity
         )
 
     elif routing_result.status == nl_router.RoutingStatus.UNANSWERABLE:
