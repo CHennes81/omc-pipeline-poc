@@ -278,6 +278,7 @@ class NLRouter:
             # Apply confidence gating per Appendix G
             result = self._apply_confidence_gates(
                 trace_id=trace_id,
+                question=question,
                 intent_id=intent_id,
                 confidence=confidence,
                 params=params,
@@ -882,6 +883,7 @@ Return JSON now:"""
     def _apply_confidence_gates(
         self,
         trace_id: str,
+        question: str,
         intent_id: Optional[str],
         confidence: float,
         params: Dict[str, Any],
@@ -990,6 +992,7 @@ Return JSON now:"""
                 # Note: The frontend will receive this and should store it for the next request
                 # We include ambiguity info in the response for frontend to use
                 result_ambiguity = ambiguity
+                session_context_payload = None
                 if has_ambiguity_candidates and normalized_candidates:
                     # Store ambiguity context in the ambiguity dict for frontend to extract
                     result_ambiguity = {
@@ -997,6 +1000,17 @@ Return JSON now:"""
                         "clarification_kind": "ambiguity",
                         "original_question": question  # Store original question for param extraction
                     }
+                    session_context_payload = {
+                        "clarification_kind": "ambiguity",
+                        "ambiguity_candidates": normalized_candidates,
+                        "original_question": question
+                    }
+
+                _trace(trace_id, "nl_ambiguity_clarification_payload", {
+                    "session_context_payload": session_context_payload,
+                    "result_ambiguity": result_ambiguity,
+                    "payload_built_successfully": session_context_payload is not None
+                })
 
                 return RoutingResult(
                     status=RoutingStatus.NEEDS_CLARIFICATION,

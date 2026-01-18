@@ -144,7 +144,7 @@ export function AskPage() {
 
           if (isAmbiguityClarification) {
             newSessionContext.clarification_kind = 'ambiguity';
-            newSessionContext.ambiguity_candidates = clarificationResult.ambiguity.candidates;
+            newSessionContext.ambiguity_candidates = clarificationResult.ambiguity?.candidates;
           }
 
           setSessionContext(newSessionContext);
@@ -372,6 +372,7 @@ export function AskPage() {
                         fontSize: '14px',
                         lineHeight: '1.5',
                         wordWrap: 'break-word',
+                        whiteSpace: 'pre-wrap',
                       }}
                     >
                       {msg.text}
