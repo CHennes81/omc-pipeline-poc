@@ -208,6 +208,7 @@ export const api = {
     question: string,
     mode?: string,
     clarificationContext?: Record<string, unknown>,
+    signal?: AbortSignal,
   ) =>
     fetchJson<AskResponse | AskClarificationResponse | AskUnanswerableResponse>('/api/ask', {
       method: 'POST',
@@ -217,6 +218,7 @@ export const api = {
         mode: mode || 'deterministic',
         clarification_context: clarificationContext,
       }),
+      signal,
     }),
 
   // Ask Config

@@ -989,6 +989,77 @@ Fixed TypeError and AttributeError in anyio timeout guard implementation.
 
 ---
 
+## 2026-01-12 – Added Frontend Timeout Safety Net for Ask API Calls
+
+Added a frontend timeout to prevent the Ask UI from hanging indefinitely if the API call stalls. The timeout aborts the request after 25 seconds and shows a user-friendly message as a normal assistant bubble.
+
+### Problem
+
+- API calls could hang indefinitely if network connectivity is lost or backend stalls
+- No frontend safety net to abort long-running requests
+- User experience degrades with indefinite "Thinking..." spinner
+
+### Solution
+
+**Frontend (2 files):**
+
+- `apps/web/src/api/client.ts`:
+  - Added optional `signal?: AbortSignal` parameter to `askQuestion()` method
+  - Passed signal through to `fetchJson` options (fetch supports signal natively)
+
+- `apps/web/src/pages/Ask.tsx`:
+  - Added constant `FRONTEND_ASK_TIMEOUT_MS = 25000` (25 seconds)
+  - Created `AbortController` and timeout timer in `handleAsk()`
+  - Passed `controller.signal` to `api.askQuestion()` call
+  - Added `clearTimeout(timer)` in `finally` block to prevent leaks
+  - Added abort handling in `catch` block:
+    - Detects `AbortError` (timeout)
+    - Appends single assistant bubble with "Remote services unavailable" message (matches backend wording)
+    - Uses `kind: 'normal'` styling (not error styling) for consistent UX
+    - Does not set error state (no dev error panel for timeouts)
+    - Resets loading state and ref guard to allow immediate retry
+
+### Implementation Notes
+
+- Timeout is a UX safety net; backend behavior unchanged
+- Abort signal is passed through API client wrapper (minimal change)
+- Timeout message matches backend error category wording exactly
+- Single-flight guard (`isSendingRef`) is preserved and reset on abort
+- Only one assistant bubble appended on timeout (no duplicates)
+- Normal error handling path unchanged (non-abort errors still show dev panel)
+
+### Verification
+
+To verify the frontend timeout:
+
+```bash
+# 1. Start frontend dev server
+cd apps/web
+npm run dev
+
+# 2. Test with WiFi OFF
+# - Ask a question
+# - Expected: Request aborts after ~25 seconds
+# - Expected: "Remote services unavailable" assistant bubble appears (normal styling)
+# - Expected: Loading spinner stops
+# - Expected: User can immediately retry (ref guard reset)
+
+# 3. Test with backend running normally
+# - Ask a question
+# - Expected: Normal behavior unchanged (no timeout if response < 25s)
+
+# 4. Test rapid double-click / Enter
+# - Expected: Single-flight guard prevents duplicate user bubbles
+# - Expected: Timeout still works if triggered
+```
+
+**Files changed:**
+
+- `apps/web/src/api/client.ts` - Added signal parameter to askQuestion
+- `apps/web/src/pages/Ask.tsx` - Added timeout, abort controller, and abort handling
+
+---
+
 ## 2026-01-12 – Fixed Double Bubble Issue in Ask Chat Transcript
 
 Fixed intermittent "double bubble" issue where a single user action sometimes resulted in the same user message being appended twice to the chat transcript.

@@ -67,6 +67,9 @@ export function AskPage() {
   // Single-flight guard to prevent duplicate sends
   const isSendingRef = useRef(false);
 
+  // Frontend timeout safety net: abort requests that exceed this limit
+  const FRONTEND_ASK_TIMEOUT_MS = 20000; // 20 seconds
+
   // Load Ask config on mount
   useEffect(() => {
     api
@@ -112,6 +115,10 @@ export function AskPage() {
     setMessages((prev) => [...prev, userMessage]);
     setDraftText(''); // Clear draft immediately
 
+    // Frontend timeout safety net: abort request if it exceeds hard limit
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FRONTEND_ASK_TIMEOUT_MS);
+
     try {
       setLoading(true);
       setError(null);
@@ -121,6 +128,7 @@ export function AskPage() {
         userMessageText, // Send ONLY the current draft text
         currentMode,
         sessionContext || undefined, // Use stored sessionContext
+        controller.signal, // Pass abort signal for timeout
       );
 
       // Log routing status
@@ -201,37 +209,55 @@ export function AskPage() {
         // No app bubble for ok responses
       }
     } catch (err) {
-      // API client throws AskError objects
-      let errorMessage = 'Failed to ask question';
-      if (err && typeof err === 'object' && 'httpStatus' in err && 'code' in err) {
-        const askError = err as AskError;
-        setError(askError);
-        errorMessage = askError.message || errorMessage;
-      } else {
-        // Fallback for unexpected error shapes
-        const fallbackError: AskError = {
-          httpStatus: 500,
-          url: `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/ask`,
-          code: 'unknown_error',
-          message: err instanceof Error ? err.message : errorMessage,
-          timestamp: new Date().toISOString(),
+      // Check if this is an abort (timeout)
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Frontend timeout: show user-friendly message as normal assistant bubble
+        const timeoutMessage: Message = {
+          id: `app-timeout-${Date.now()}`,
+          role: 'app',
+          text: 'Remote services unavailable. The system could not connect to required services. Please try again later or contact your system administrator.',
+          ts: Date.now(),
+          kind: 'normal', // Use normal styling, not error styling
         };
-        setError(fallbackError);
-        errorMessage = fallbackError.message;
-      }
+        setMessages((prev) => [...prev, timeoutMessage]);
+        setResponse(null);
+        setSessionContext(null);
+        setPendingClarification(false);
+        // Do not set error state (no dev error panel for timeouts)
+      } else {
+        // API client throws AskError objects
+        let errorMessage = 'Failed to ask question';
+        if (err && typeof err === 'object' && 'httpStatus' in err && 'code' in err) {
+          const askError = err as AskError;
+          setError(askError);
+          errorMessage = askError.message || errorMessage;
+        } else {
+          // Fallback for unexpected error shapes
+          const fallbackError: AskError = {
+            httpStatus: 500,
+            url: `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/ask`,
+            code: 'unknown_error',
+            message: err instanceof Error ? err.message : errorMessage,
+            timestamp: new Date().toISOString(),
+          };
+          setError(fallbackError);
+          errorMessage = fallbackError.message;
+        }
 
-      const errorMessageBubble: Message = {
-        id: `app-error-${Date.now()}`,
-        role: 'app',
-        text: errorMessage,
-        ts: Date.now(),
-        kind: 'error',
-      };
-      setMessages((prev) => [...prev, errorMessageBubble]);
-      setResponse(null);
-      setSessionContext(null);
-      setPendingClarification(false);
+        const errorMessageBubble: Message = {
+          id: `app-error-${Date.now()}`,
+          role: 'app',
+          text: errorMessage,
+          ts: Date.now(),
+          kind: 'error',
+        };
+        setMessages((prev) => [...prev, errorMessageBubble]);
+        setResponse(null);
+        setSessionContext(null);
+        setPendingClarification(false);
+      }
     } finally {
+      clearTimeout(timer); // Clean up timeout to avoid leaks
       setLoading(false);
       isSendingRef.current = false;
     }
