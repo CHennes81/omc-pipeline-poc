@@ -896,17 +896,20 @@ curl -X POST http://127.0.0.1:8000/api/ask \
 
 ---
 
-## 2026-01-12 – Added Hard Timeout for NL Routing LLM Calls
+## 2026-01-12 – Added Application-Level Hard Timeout for NL Routing LLM Calls
 
-Implemented 15-second hard timeout on Natural Language routing LLM calls to prevent hanging when network connectivity is lost.
+Implemented 12-second application-level hard timeout on Natural Language routing LLM calls to prevent hanging when network connectivity is lost. Uses `anyio.fail_after()` as a provider-agnostic timeout guard in addition to OpenAI SDK timeout.
 
 ### Changes
 
 **Backend (2 files):**
 
 - `apps/api/app/nl_router.py`:
-  - Added `timeout=15.0` parameter to OpenAI client initialization
-  - Added specific exception handling for `TimeoutError` and `OSError` during LLM calls
+  - Added module constant `LLM_TIMEOUT_SECONDS = 12.0`
+  - Wrapped LLM call with `anyio.fail_after(LLM_TIMEOUT_SECONDS)` for application-level timeout guard
+  - Uses `anyio.to_thread.run_sync()` to run synchronous OpenAI call in thread with timeout enforcement
+  - Added exception handling for `anyio.TooSlowError` (timeout exception from anyio.fail_after)
+  - Kept existing OpenAI client `timeout=12.0` parameter (belt + suspenders approach)
   - Returns `RoutingResult` with `error_code="llm_timeout"` when timeout occurs
 - `apps/api/app/routes.py`:
   - Updated ERROR status handling in `_handle_nl_ask` to map `llm_timeout` errors to `remote_services_unavailable`
@@ -915,12 +918,14 @@ Implemented 15-second hard timeout on Natural Language routing LLM calls to prev
 
 ### Implementation Notes
 
-- Timeout value: **15 seconds** (hard limit enforced by OpenAI SDK)
-- Timeout exceptions are caught and logged with `error_code="llm_timeout"`
+- Timeout value: **12 seconds** (application-level hard limit via `anyio.fail_after()`)
+- Provider-agnostic timeout guard using `anyio` (works regardless of OpenAI SDK behavior)
+- Belt + suspenders: both OpenAI SDK timeout and application-level timeout
+- Timeout exceptions (`anyio.TooSlowError`) are caught and mapped to `error_code="llm_timeout"`
 - Timeout errors are mapped to `ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE` category
 - HTTP status: 503 (Service Unavailable) for timeouts
 - No retries, backoff, or vendor-specific exception taxonomy
-- Existing routing semantics unchanged
+- Existing routing semantics, confidence gating, and clarification behavior unchanged
 
 ### Verification
 
@@ -936,13 +941,13 @@ cd apps/api
 curl -X POST http://127.0.0.1:8000/api/ask \
   -H "Content-Type: application/json" \
   -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
-# Expected: Request completes within ~15 seconds (not hanging indefinitely)
+# Expected: Request completes within ~12 seconds (not hanging indefinitely)
 # Expected: HTTP 503 with category "remote_services_unavailable"
 # Expected: Error log includes error_code="llm_timeout"
 
-# 3. Verify timeout is enforced (should not exceed 15 seconds)
+# 3. Verify timeout is enforced (should not exceed 12 seconds)
 # Use a network throttling tool or simulate slow connection
-# Expected: Request fails with timeout after 15 seconds maximum
+# Expected: Request fails with timeout after 12 seconds maximum
 ```
 
 **Files changed:**

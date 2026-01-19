@@ -18,6 +18,10 @@ from dataclasses import dataclass
 from enum import Enum
 from openai import OpenAI
 from app.config import settings
+import anyio
+
+# Hard timeout for LLM calls (application-level guard)
+LLM_TIMEOUT_SECONDS = 12.0
 
 logger = logging.getLogger(__name__)
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -185,16 +189,24 @@ class NLRouter:
         })
 
         try:
-            # Call LLM
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are an intent router. You must respond ONLY with valid JSON matching the required schema. Never include explanations, apologies, or any text outside the JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.0,
-                response_format={"type": "json_object"}
-            )
+            # Call LLM with application-level timeout guard (belt + suspenders)
+            # Run synchronous OpenAI call in thread with anyio timeout enforcement
+            async def _call_llm_with_timeout():
+                async with anyio.fail_after(LLM_TIMEOUT_SECONDS):
+                    # Run synchronous OpenAI call in thread
+                    return await anyio.to_thread.run_sync(
+                        lambda: self.client.chat.completions.create(
+                            model=self.model,
+                            messages=[
+                                {"role": "system", "content": "You are an intent router. You must respond ONLY with valid JSON matching the required schema. Never include explanations, apologies, or any text outside the JSON."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.0,
+                            response_format={"type": "json_object"}
+                        )
+                    )
+
+            response = anyio.run(_call_llm_with_timeout)
 
             # Parse LLM response
             response_text = response.choices[0].message.content
@@ -291,6 +303,13 @@ class NLRouter:
 
             return result
 
+        except anyio.TooSlowError as e:
+            # Application-level timeout (anyio.fail_after)
+            return RoutingResult(
+                status=RoutingStatus.ERROR,
+                error_code="llm_timeout",
+                error_message=f"LLM request timed out after {LLM_TIMEOUT_SECONDS} seconds"
+            )
         except (TimeoutError, OSError) as e:
             # Network timeout or connection error during LLM call
             return RoutingResult(
