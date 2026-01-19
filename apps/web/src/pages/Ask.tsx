@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import type {
   AskResponse,
@@ -64,6 +64,9 @@ export function AskPage() {
   const [askConfig, setAskConfig] = useState<AskConfig | null>(null);
   const [currentMode, setCurrentMode] = useState<'deterministic' | 'nl'>('deterministic');
 
+  // Single-flight guard to prevent duplicate sends
+  const isSendingRef = useRef(false);
+
   // Load Ask config on mount
   useEffect(() => {
     api
@@ -82,7 +85,11 @@ export function AskPage() {
   }, []);
 
   const handleAsk = async () => {
+    // Single-flight guard: prevent concurrent execution
+    if (isSendingRef.current) return;
     if (!draftText.trim()) return;
+
+    isSendingRef.current = true;
 
     const userMessageText = draftText.trim();
     const isClarification = pendingClarification;
@@ -226,6 +233,7 @@ export function AskPage() {
       setPendingClarification(false);
     } finally {
       setLoading(false);
+      isSendingRef.current = false;
     }
   };
 
@@ -400,7 +408,9 @@ export function AskPage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
-                    handleAsk();
+                    if (!isSendingRef.current && draftText.trim()) {
+                      handleAsk();
+                    }
                   }
                 }}
                 className="page-textarea"

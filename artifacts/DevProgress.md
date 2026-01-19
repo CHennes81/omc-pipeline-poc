@@ -989,6 +989,68 @@ Fixed TypeError and AttributeError in anyio timeout guard implementation.
 
 ---
 
+## 2026-01-12 – Fixed Double Bubble Issue in Ask Chat Transcript
+
+Fixed intermittent "double bubble" issue where a single user action sometimes resulted in the same user message being appended twice to the chat transcript.
+
+### Problem
+
+- Rare duplicate user message bubbles in chat transcript
+- Possible causes: double-submit (onSubmit + onClick), StrictMode/dev double-invocation, or rapid clicks
+- User message was appended before async guard could prevent concurrent execution
+
+### Solution
+
+**Frontend (1 file):**
+
+- `apps/web/src/pages/Ask.tsx`:
+  - Added `useRef` import
+  - Added `isSendingRef` ref-based single-flight guard to prevent concurrent execution
+  - Guard check at start of `handleAsk`: returns early if already sending
+  - Ref set to `true` at start of execution, reset to `false` in `finally` block
+  - Enter key handler checks ref before calling `handleAsk` (optimization)
+  - Button disabled state uses existing `loading` state (ref guard handles actual prevention)
+
+### Implementation Notes
+
+- Ref-based guard prevents same-tick/double-invocation issues
+- User message is appended exactly once per send attempt (inside guarded function)
+- No form/onSubmit duplication (no form element exists)
+- Sample question clicks only set draft text (no auto-send, no duplication)
+- Existing `loading` state retained for UI disabled state
+- No changes to API contracts, error handling, or routing semantics
+
+### Verification
+
+To verify the fix:
+
+```bash
+# 1. Start frontend dev server
+cd apps/web
+npm run dev
+
+# 2. Test single click on sample question
+# Expected: Only one user bubble added
+
+# 3. Test Enter key submission (Cmd/Ctrl+Enter)
+# Expected: Only one user bubble added
+
+# 4. Test Ask button click
+# Expected: Only one user bubble added
+
+# 5. Test rapid double-click on Ask button
+# Expected: Only one send executes (second ignored by ref guard)
+
+# 6. Verify normal responses and error responses still work
+# Expected: No regressions in response rendering
+```
+
+**Files changed:**
+
+- `apps/web/src/pages/Ask.tsx` - Added ref-based single-flight guard
+
+---
+
 ## 2026-01-12 – Updated Ask Error Message Styling in Chat Transcript
 
 Changed error message styling in Ask chat transcript to render as normal assistant bubbles instead of red error boxes.
