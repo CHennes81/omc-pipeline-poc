@@ -9,7 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_DIR="${SCRIPT_DIR}/apps/api"
-VENV_DIR="${API_DIR}/venv"
+VENV_DIR="${API_DIR}/.venv"
 
 API_HOST="127.0.0.1"
 API_PORT="8000"

@@ -713,6 +713,458 @@ Trace logs will show every handoff in the NL pipeline, making it possible to dia
 
 ---
 
+## 2026-01-12 – Demo-Safe Backend Error Catching for /api/ask
+
+Implemented global error catching for `/api/ask` endpoint to ensure demo-safe behavior per requirements.
+
+### Changes
+
+**Backend (1 file):**
+
+- `apps/api/app/routes.py` - Added outermost catch-all try/except around entire `/api/ask` handler:
+  - Error taxonomy: Three user-facing categories (constants):
+    - `ASK_ERROR_CATEGORY_UNANSWERABLE` → "This question can't be answered..."
+    - `ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE` → "Unable to retrieve data..."
+    - `ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE` → "Remote services unavailable..."
+  - Exception mapping:
+    - `ConnectionError`, `TimeoutError`, `OSError` → `remote_services_unavailable` (treats OpenAI failures as opaque external dependency)
+    - `SQLAlchemyError`, `ValueError`, `KeyError` → `data_retrieval_failure`
+    - All other exceptions → `data_retrieval_failure` (catch-all)
+  - Consistent JSON error envelope on all failures (no raw exception text to client)
+  - Updated `_log_ask_failure()` to include `intent_id` parameter and conditionally include stack traces (dev/local only)
+  - Updated all inner handlers (`_handle_deterministic_ask`, `_handle_nl_ask`) to use new error taxonomy constants
+
+### Implementation Notes
+
+- Outermost catch-all prevents any uncaught exceptions from reaching client
+- All error responses use user-facing messages (no raw exception text)
+- Stack traces only logged in dev/local environments (`settings.app_env in ("local", "dev")`)
+- Structured JSON logging includes: timestamp, env, endpoint, production_code, question, template/intent_id, error_code, error_category, exception message, stack trace (conditional)
+- Routing semantics unchanged (no retries, no behavior changes)
+- OpenAI SDK exceptions treated as opaque external dependency failures (caught by generic Exception handler)
+
+### Verification
+
+To verify locally:
+
+```bash
+# 1. Start API server
+cd apps/api
+./run.sh
+
+# 2. Test error handling with invalid question (should return unanswerable)
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "invalid question that cannot be routed"}'
+# Expected: HTTP 400 with category "unanswerable"
+
+# 3. Test with database error (simulate by stopping DB)
+# Expected: HTTP 500 with category "data_retrieval_failure"
+
+# 4. Check logs (should see structured JSON logs to stdout)
+# In local/dev: includes stack_trace
+# In prod: no stack_trace
+```
+
+**Files changed:**
+
+- `apps/api/app/routes.py` - Added error taxonomy, outermost catch-all, updated logging
+
+---
+
+## 2026-01-12 – Improved Ask Error Handling Observability and Context Propagation
+
+Enhanced error handling in `/api/ask` to improve observability and ensure context (template_name/intent_id) is available in logs when failures occur.
+
+### Changes
+
+**Backend (1 file):**
+
+- `apps/api/app/routes.py`:
+  - **Context propagation**: Added shared mutable `context` dict passed to inner handlers to track `template_name` and `intent_id` as they are resolved
+  - **Outer catch logging**: Updated outer catch-all to use `context.get("template_name")` and `context.get("intent_id")` for more accurate error logs
+  - **\_handle_deterministic_ask**:
+    - Now accepts `context` parameter
+    - Updates `context["template_name"]` when template is resolved
+    - Wrapped `template_func(db, **params)` execution in try/except to catch SQL/template exceptions with proper context
+    - Maps SQLAlchemyError/ValueError/KeyError → `data_retrieval_failure`
+    - Maps other exceptions → `data_retrieval_failure` (catch-all)
+  - **\_handle_nl_ask**:
+    - Now accepts `context` parameter
+    - Updates `context["intent_id"]` when intent is resolved (OK status)
+    - Wrapped `router.route()` in try/except to catch connection/timeout errors → `remote_services_unavailable`
+    - Wrapped `executor.execute()` in try/except to catch DB/template errors → `data_retrieval_failure`
+    - Maps unexpected execution errors → `data_retrieval_failure` (catch-all)
+
+### Implementation Notes
+
+- Double-layer try/except pattern: inner handlers handle common failures with proper context, outer catch-all handles truly unexpected exceptions
+- Context dict is minimal (only template_name and intent_id) and passed by reference
+- Inner handlers log errors with resolved template_name/intent_id before raising HTTPException
+- Outer catch-all uses context for logging when inner handlers don't catch exceptions
+- No changes to routing semantics, confidence thresholds, clarification behavior, or response schemas
+- No retries, backoff, or vendor-specific exception taxonomy
+
+### Verification
+
+To verify locally:
+
+```bash
+# 1. Start API server
+cd apps/api
+./run.sh
+
+# 2. Test deterministic mode with template execution error
+# (Simulate by temporarily breaking a template function)
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021"}'
+# Expected: Error log should include template_name="latest_camera_original"
+
+# 3. Test NL mode with connection error (simulate by setting invalid OpenAI API key)
+export OPENAI_API_KEY="invalid"
+export ASK_NL_ENABLED=true
+# Restart API, then:
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+# Expected: Error log should include category="remote_services_unavailable"
+
+# 4. Test NL mode with execution error (simulate DB error)
+# Expected: Error log should include intent_id when available
+
+# 5. Check logs - verify template_name/intent_id appear in error logs when failures occur
+```
+
+**Files changed:**
+
+- `apps/api/app/routes.py` - Added context propagation, inner error handling with proper context
+
+---
+
+## 2026-01-12 – Fixed NameError for Ask Error Taxonomy Constants
+
+Fixed runtime crash caused by undefined error taxonomy constants in `/api/ask` endpoint.
+
+### Problem
+
+`NameError: ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE is not defined` occurred in `_handle_nl_ask` and outer catch-all, causing Ask UI to hang on "Thinking..." because the API never returned a response.
+
+### Solution
+
+**Backend (1 file):**
+
+- `apps/api/app/routes.py` - Added error taxonomy constants at module scope:
+  - `ASK_ERROR_CATEGORY_UNANSWERABLE = "unanswerable"`
+  - `ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE = "data_retrieval_failure"`
+  - `ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE = "remote_services_unavailable"`
+  - `ASK_USER_MESSAGES` dict mapping categories to user-facing messages
+
+### Implementation Notes
+
+- Constants defined at module level (after router initialization) for consistent access
+- All 13 references to error categories now use the defined constants
+- Behavior unchanged: same three user-facing categories and same error envelope shape
+- No changes to routing semantics or exception handling logic
+
+### Verification
+
+To verify the fix:
+
+```bash
+# 1. Start API server
+cd apps/api
+./run.sh
+
+# 2. Test NL mode with Wi-Fi off (simulates connection error)
+# Disable network, then:
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+# Expected: HTTP 503 with category "remote_services_unavailable" (not crash)
+
+# 3. Test with forced internal error (simulate by temporarily breaking a template)
+# Expected: HTTP 500 with category "data_retrieval_failure" (not crash)
+
+# 4. Verify API returns proper error envelope in all cases
+# All errors should return JSON with: code, message (user-facing), category
+```
+
+**Files changed:**
+
+- `apps/api/app/routes.py` - Added error taxonomy constants at module scope
+
+---
+
+## 2026-01-12 – Added Application-Level Hard Timeout for NL Routing LLM Calls
+
+Implemented 12-second application-level hard timeout on Natural Language routing LLM calls to prevent hanging when network connectivity is lost. Uses `anyio.fail_after()` as a provider-agnostic timeout guard in addition to OpenAI SDK timeout.
+
+### Changes
+
+**Backend (2 files):**
+
+- `apps/api/app/nl_router.py`:
+  - Added module constant `LLM_TIMEOUT_SECONDS = 12.0`
+  - Wrapped LLM call with `anyio.fail_after(LLM_TIMEOUT_SECONDS)` for application-level timeout guard
+  - Uses `anyio.to_thread.run_sync()` to run synchronous OpenAI call in thread with timeout enforcement
+  - Added exception handling for `anyio.TooSlowError` (timeout exception from anyio.fail_after)
+  - Kept existing OpenAI client `timeout=12.0` parameter (belt + suspenders approach)
+  - Returns `RoutingResult` with `error_code="llm_timeout"` when timeout occurs
+- `apps/api/app/routes.py`:
+  - Updated ERROR status handling in `_handle_nl_ask` to map `llm_timeout` errors to `remote_services_unavailable`
+  - Timeout errors return HTTP 503 (Service Unavailable) instead of HTTP 500
+  - Other routing errors continue to map to `data_retrieval_failure` with HTTP 500
+
+### Implementation Notes
+
+- Timeout value: **12 seconds** (application-level hard limit via `anyio.fail_after()`)
+- Provider-agnostic timeout guard using `anyio` (works regardless of OpenAI SDK behavior)
+- Belt + suspenders: both OpenAI SDK timeout and application-level timeout
+- Timeout exceptions (`TimeoutError`) are caught and mapped to `error_code="llm_timeout"`
+- Timeout errors are mapped to `ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE` category
+- HTTP status: 503 (Service Unavailable) for timeouts
+- No retries, backoff, or vendor-specific exception taxonomy
+- Existing routing semantics, confidence gating, and clarification behavior unchanged
+
+### Verification
+
+To verify the timeout:
+
+```bash
+# 1. Start API server
+cd apps/api
+./run.sh
+
+# 2. Test with Wi-Fi off (simulates network timeout)
+# Disable network connectivity, then:
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+# Expected: Request completes within ~12 seconds (not hanging indefinitely)
+# Expected: HTTP 503 with category "remote_services_unavailable"
+# Expected: Error log includes error_code="llm_timeout"
+
+# 3. Verify timeout is enforced (should not exceed 12 seconds)
+# Use a network throttling tool or simulate slow connection
+# Expected: Request fails with timeout after 12 seconds maximum
+```
+
+**Files changed:**
+
+- `apps/api/app/nl_router.py` - Added timeout and exception handling
+- `apps/api/app/routes.py` - Updated error mapping for timeouts
+
+---
+
+## 2026-01-12 – Fixed anyio Timeout Guard Implementation
+
+Fixed TypeError and AttributeError in anyio timeout guard implementation.
+
+### Problem
+
+- `TypeError: '_GeneratorContextManager' object does not support the asynchronous context manager protocol` - `anyio.fail_after()` was used with `async with` but it's a sync context manager
+- `AttributeError: module 'anyio' has no attribute 'TooSlowError'` - Non-existent exception type was being caught
+
+### Solution
+
+**Backend (1 file):**
+
+- `apps/api/app/nl_router.py`:
+  - Changed `async with anyio.fail_after(...)` to `with anyio.fail_after(...)` (sync context manager)
+  - Removed `except anyio.TooSlowError` handler (non-existent exception)
+  - Changed to catch `TimeoutError` instead (raised by `anyio.fail_after()` on timeout)
+  - Added `abandon_on_cancel=True` to `anyio.to_thread.run_sync()` to ensure worker thread is abandoned on cancellation
+
+### Implementation Notes
+
+- `anyio.fail_after()` is a sync context manager, used with `with` not `async with`
+- Timeout exceptions are caught as `TimeoutError` (standard exception raised by anyio)
+- Worker thread abandonment ensures cancellation works properly
+- All other behavior unchanged: same error_code="llm_timeout", same routing to remote_services_unavailable
+
+**Files changed:**
+
+- `apps/api/app/nl_router.py` - Fixed anyio context manager usage and exception handling
+
+---
+
+## 2026-01-12 – Added Frontend Timeout Safety Net for Ask API Calls
+
+Added a frontend timeout to prevent the Ask UI from hanging indefinitely if the API call stalls. The timeout aborts the request after 25 seconds and shows a user-friendly message as a normal assistant bubble.
+
+### Problem
+
+- API calls could hang indefinitely if network connectivity is lost or backend stalls
+- No frontend safety net to abort long-running requests
+- User experience degrades with indefinite "Thinking..." spinner
+
+### Solution
+
+**Frontend (2 files):**
+
+- `apps/web/src/api/client.ts`:
+  - Added optional `signal?: AbortSignal` parameter to `askQuestion()` method
+  - Passed signal through to `fetchJson` options (fetch supports signal natively)
+
+- `apps/web/src/pages/Ask.tsx`:
+  - Added constant `FRONTEND_ASK_TIMEOUT_MS = 25000` (25 seconds)
+  - Created `AbortController` and timeout timer in `handleAsk()`
+  - Passed `controller.signal` to `api.askQuestion()` call
+  - Added `clearTimeout(timer)` in `finally` block to prevent leaks
+  - Added abort handling in `catch` block:
+    - Detects `AbortError` (timeout)
+    - Appends single assistant bubble with "Remote services unavailable" message (matches backend wording)
+    - Uses `kind: 'normal'` styling (not error styling) for consistent UX
+    - Does not set error state (no dev error panel for timeouts)
+    - Resets loading state and ref guard to allow immediate retry
+
+### Implementation Notes
+
+- Timeout is a UX safety net; backend behavior unchanged
+- Abort signal is passed through API client wrapper (minimal change)
+- Timeout message matches backend error category wording exactly
+- Single-flight guard (`isSendingRef`) is preserved and reset on abort
+- Only one assistant bubble appended on timeout (no duplicates)
+- Normal error handling path unchanged (non-abort errors still show dev panel)
+
+### Verification
+
+To verify the frontend timeout:
+
+```bash
+# 1. Start frontend dev server
+cd apps/web
+npm run dev
+
+# 2. Test with WiFi OFF
+# - Ask a question
+# - Expected: Request aborts after ~25 seconds
+# - Expected: "Remote services unavailable" assistant bubble appears (normal styling)
+# - Expected: Loading spinner stops
+# - Expected: User can immediately retry (ref guard reset)
+
+# 3. Test with backend running normally
+# - Ask a question
+# - Expected: Normal behavior unchanged (no timeout if response < 25s)
+
+# 4. Test rapid double-click / Enter
+# - Expected: Single-flight guard prevents duplicate user bubbles
+# - Expected: Timeout still works if triggered
+```
+
+**Files changed:**
+
+- `apps/web/src/api/client.ts` - Added signal parameter to askQuestion
+- `apps/web/src/pages/Ask.tsx` - Added timeout, abort controller, and abort handling
+
+---
+
+## 2026-01-12 – Fixed Double Bubble Issue in Ask Chat Transcript
+
+Fixed intermittent "double bubble" issue where a single user action sometimes resulted in the same user message being appended twice to the chat transcript.
+
+### Problem
+
+- Rare duplicate user message bubbles in chat transcript
+- Possible causes: double-submit (onSubmit + onClick), StrictMode/dev double-invocation, or rapid clicks
+- User message was appended before async guard could prevent concurrent execution
+
+### Solution
+
+**Frontend (1 file):**
+
+- `apps/web/src/pages/Ask.tsx`:
+  - Added `useRef` import
+  - Added `isSendingRef` ref-based single-flight guard to prevent concurrent execution
+  - Guard check at start of `handleAsk`: returns early if already sending
+  - Ref set to `true` at start of execution, reset to `false` in `finally` block
+  - Enter key handler checks ref before calling `handleAsk` (optimization)
+  - Button disabled state uses existing `loading` state (ref guard handles actual prevention)
+
+### Implementation Notes
+
+- Ref-based guard prevents same-tick/double-invocation issues
+- User message is appended exactly once per send attempt (inside guarded function)
+- No form/onSubmit duplication (no form element exists)
+- Sample question clicks only set draft text (no auto-send, no duplication)
+- Existing `loading` state retained for UI disabled state
+- No changes to API contracts, error handling, or routing semantics
+
+### Verification
+
+To verify the fix:
+
+```bash
+# 1. Start frontend dev server
+cd apps/web
+npm run dev
+
+# 2. Test single click on sample question
+# Expected: Only one user bubble added
+
+# 3. Test Enter key submission (Cmd/Ctrl+Enter)
+# Expected: Only one user bubble added
+
+# 4. Test Ask button click
+# Expected: Only one user bubble added
+
+# 5. Test rapid double-click on Ask button
+# Expected: Only one send executes (second ignored by ref guard)
+
+# 6. Verify normal responses and error responses still work
+# Expected: No regressions in response rendering
+```
+
+**Files changed:**
+
+- `apps/web/src/pages/Ask.tsx` - Added ref-based single-flight guard
+
+---
+
+## 2026-01-12 – Updated Ask Error Message Styling in Chat Transcript
+
+Changed error message styling in Ask chat transcript to render as normal assistant bubbles instead of red error boxes.
+
+### Changes
+
+**Frontend (1 file):**
+
+- `apps/web/src/pages/Ask.tsx` - Removed error-specific styling from chat transcript message rendering:
+  - Error messages now use same styling as normal assistant messages:
+    - `backgroundColor: 'var(--dashboard-surface)'` (was red background)
+    - `border: '1px solid var(--dashboard-border)'` (was red border)
+    - `color: 'var(--dashboard-text-primary)'` (was red text)
+  - Clarification messages retain yellow styling (unchanged)
+  - DEV-only debug panel (`AskErrorPanel`) retains red error styling (unchanged)
+
+### Implementation Notes
+
+- Error messages in chat transcript now appear as standard assistant bubbles
+- No changes to error semantics, message text, or envelope parsing
+- Bubble layout and message history behavior unchanged
+- Debug panel on right side continues to use error styling for diagnostics
+
+### Verification
+
+To verify the change:
+
+```bash
+# 1. Start frontend dev server
+cd apps/web
+npm run dev
+
+# 2. Trigger an error (e.g., invalid question or network error)
+# Expected: Error message appears in chat as normal assistant bubble (not red)
+# Expected: DEV debug panel on right still shows red error styling
+```
+
+**Files changed:**
+
+- `apps/web/src/pages/Ask.tsx` - Removed error-specific styling from chat transcript
+
+---
+
 ## 2026-01-12 – Fixed NL Clarification Behavior for Missing Parameters and Ambiguity
 
 Fixed natural language router to properly trigger clarification responses instead of returning hard 400 "unsupported_question" errors when parameters are missing or questions are ambiguous.
