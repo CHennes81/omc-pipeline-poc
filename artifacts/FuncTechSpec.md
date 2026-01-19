@@ -540,7 +540,7 @@ This appendix is **normative** for Phase 1 and later phases.
 
 ### E.2 User-facing error states (Ask UI)
 
-The Ask UI MUST present exactly **two** user-visible error messages.
+The Ask UI MUST present exactly **three** user-visible error messages.
 
 #### E.2.1 Unanswerable question
 
@@ -592,6 +592,29 @@ Typical internal error codes:
 - `template_error`
 - `query_execution_error`
 - `internal_error`
+
+---
+
+#### E.2.3 Remote services unavailable
+
+Displayed when the system cannot reach a required remote dependency (such as an LLM API), or when a request to that dependency times out.
+
+**User message (exact text):**
+
+> **Remote services unavailable**
+> The system couldn’t reach a required remote service to answer this question.
+> Please try again later or contact your system administrator.
+
+Typical HTTP status:
+
+- `503` (Service Unavailable) when a remote dependency is unavailable or times out
+- `500` (Internal Server Error) when the failure is surfaced indirectly via internal handling logic
+
+Typical internal error codes:
+
+- `remote_services_unavailable`
+- `llm_timeout`
+- `llm_connection_error`
 
 ---
 
@@ -693,7 +716,7 @@ Sensitive information (credentials, secrets, tokens) MUST NOT be logged.
 The Ask feature satisfies this appendix when:
 
 1. The UI never displays raw HTTP status codes or backend exception text
-2. All Ask failures render one of the two defined user messages
+2. All Ask failures render one of the three defined user messages
 3. Developer diagnostics are visible only in development
 4. Backend logs contain sufficient structured data to diagnose failures
 5. The system remains fully deterministic and demo-safe

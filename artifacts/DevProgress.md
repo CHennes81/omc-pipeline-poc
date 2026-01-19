@@ -713,6 +713,135 @@ Trace logs will show every handoff in the NL pipeline, making it possible to dia
 
 ---
 
+## 2026-01-12 – Demo-Safe Backend Error Catching for /api/ask
+
+Implemented global error catching for `/api/ask` endpoint to ensure demo-safe behavior per requirements.
+
+### Changes
+
+**Backend (1 file):**
+
+- `apps/api/app/routes.py` - Added outermost catch-all try/except around entire `/api/ask` handler:
+  - Error taxonomy: Three user-facing categories (constants):
+    - `ASK_ERROR_CATEGORY_UNANSWERABLE` → "This question can't be answered..."
+    - `ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE` → "Unable to retrieve data..."
+    - `ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE` → "Remote services unavailable..."
+  - Exception mapping:
+    - `ConnectionError`, `TimeoutError`, `OSError` → `remote_services_unavailable` (treats OpenAI failures as opaque external dependency)
+    - `SQLAlchemyError`, `ValueError`, `KeyError` → `data_retrieval_failure`
+    - All other exceptions → `data_retrieval_failure` (catch-all)
+  - Consistent JSON error envelope on all failures (no raw exception text to client)
+  - Updated `_log_ask_failure()` to include `intent_id` parameter and conditionally include stack traces (dev/local only)
+  - Updated all inner handlers (`_handle_deterministic_ask`, `_handle_nl_ask`) to use new error taxonomy constants
+
+### Implementation Notes
+
+- Outermost catch-all prevents any uncaught exceptions from reaching client
+- All error responses use user-facing messages (no raw exception text)
+- Stack traces only logged in dev/local environments (`settings.app_env in ("local", "dev")`)
+- Structured JSON logging includes: timestamp, env, endpoint, production_code, question, template/intent_id, error_code, error_category, exception message, stack trace (conditional)
+- Routing semantics unchanged (no retries, no behavior changes)
+- OpenAI SDK exceptions treated as opaque external dependency failures (caught by generic Exception handler)
+
+### Verification
+
+To verify locally:
+
+```bash
+# 1. Start API server
+cd apps/api
+./run.sh
+
+# 2. Test error handling with invalid question (should return unanswerable)
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "invalid question that cannot be routed"}'
+# Expected: HTTP 400 with category "unanswerable"
+
+# 3. Test with database error (simulate by stopping DB)
+# Expected: HTTP 500 with category "data_retrieval_failure"
+
+# 4. Check logs (should see structured JSON logs to stdout)
+# In local/dev: includes stack_trace
+# In prod: no stack_trace
+```
+
+**Files changed:**
+
+- `apps/api/app/routes.py` - Added error taxonomy, outermost catch-all, updated logging
+
+---
+
+## 2026-01-12 – Improved Ask Error Handling Observability and Context Propagation
+
+Enhanced error handling in `/api/ask` to improve observability and ensure context (template_name/intent_id) is available in logs when failures occur.
+
+### Changes
+
+**Backend (1 file):**
+
+- `apps/api/app/routes.py`:
+  - **Context propagation**: Added shared mutable `context` dict passed to inner handlers to track `template_name` and `intent_id` as they are resolved
+  - **Outer catch logging**: Updated outer catch-all to use `context.get("template_name")` and `context.get("intent_id")` for more accurate error logs
+  - **\_handle_deterministic_ask**:
+    - Now accepts `context` parameter
+    - Updates `context["template_name"]` when template is resolved
+    - Wrapped `template_func(db, **params)` execution in try/except to catch SQL/template exceptions with proper context
+    - Maps SQLAlchemyError/ValueError/KeyError → `data_retrieval_failure`
+    - Maps other exceptions → `data_retrieval_failure` (catch-all)
+  - **\_handle_nl_ask**:
+    - Now accepts `context` parameter
+    - Updates `context["intent_id"]` when intent is resolved (OK status)
+    - Wrapped `router.route()` in try/except to catch connection/timeout errors → `remote_services_unavailable`
+    - Wrapped `executor.execute()` in try/except to catch DB/template errors → `data_retrieval_failure`
+    - Maps unexpected execution errors → `data_retrieval_failure` (catch-all)
+
+### Implementation Notes
+
+- Double-layer try/except pattern: inner handlers handle common failures with proper context, outer catch-all handles truly unexpected exceptions
+- Context dict is minimal (only template_name and intent_id) and passed by reference
+- Inner handlers log errors with resolved template_name/intent_id before raising HTTPException
+- Outer catch-all uses context for logging when inner handlers don't catch exceptions
+- No changes to routing semantics, confidence thresholds, clarification behavior, or response schemas
+- No retries, backoff, or vendor-specific exception taxonomy
+
+### Verification
+
+To verify locally:
+
+```bash
+# 1. Start API server
+cd apps/api
+./run.sh
+
+# 2. Test deterministic mode with template execution error
+# (Simulate by temporarily breaking a template function)
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021"}'
+# Expected: Error log should include template_name="latest_camera_original"
+
+# 3. Test NL mode with connection error (simulate by setting invalid OpenAI API key)
+export OPENAI_API_KEY="invalid"
+export ASK_NL_ENABLED=true
+# Restart API, then:
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+# Expected: Error log should include category="remote_services_unavailable"
+
+# 4. Test NL mode with execution error (simulate DB error)
+# Expected: Error log should include intent_id when available
+
+# 5. Check logs - verify template_name/intent_id appear in error logs when failures occur
+```
+
+**Files changed:**
+
+- `apps/api/app/routes.py` - Added context propagation, inner error handling with proper context
+
+---
+
 ## 2026-01-12 – Fixed NL Clarification Behavior for Missing Parameters and Ambiguity
 
 Fixed natural language router to properly trigger clarification responses instead of returning hard 400 "unsupported_question" errors when parameters are missing or questions are ambiguous.
