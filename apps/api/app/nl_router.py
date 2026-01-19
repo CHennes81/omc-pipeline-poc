@@ -1182,8 +1182,8 @@ def get_router() -> Optional[NLRouter]:
     if _router is None:
         # Initialize registry and router
         _registry = IntentRegistry()
-        # Set 15 second timeout for LLM calls to prevent hanging on network issues
-        openai_client = OpenAI(api_key=settings.openai_api_key, timeout=12.0)
+        # Set timeout for LLM calls to prevent hanging on network issues (belt + suspenders with anyio.fail_after)
+        openai_client = OpenAI(api_key=settings.openai_api_key, timeout=LLM_TIMEOUT_SECONDS)
         _router = NLRouter(_registry, openai_client)
 
     return _router
