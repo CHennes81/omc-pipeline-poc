@@ -19,6 +19,31 @@ DEV_WEB_PORT="5173"
 DESIRED_APP_ENV="local"
 DESIRED_CORS_ORIGINS="http://localhost:${DEV_WEB_PORT},http://127.0.0.1:${DEV_WEB_PORT},http://localhost:3000,http://127.0.0.1:3000"
 
+
+# ------------------------------
+# NL Ask (Appendix G) – DEV mode
+# ------------------------------
+
+# Master NL enable switch
+export ASK_NL_ENABLED=true
+
+# Allow frontend to show NL / Deterministic toggle
+export ASK_DUAL_MODE_UI=true
+
+# Default Ask mode when UI loads allowed: deterministic | nl
+export ASK_DEFAULT_MODE=nl
+
+# Enable structured NL trace logging (DEV ONLY)
+export ASK_NL_TRACE=true
+
+# (Optional but recommended for determinism)
+export ASK_NL_MODEL=gpt-4o-mini
+export ASK_NL_TEMPERATURE=0.0
+
+# Confidence thresholds (align with Appendix G)
+export ASK_NL_CONFIDENCE_EXECUTE_MIN=0.80
+export ASK_NL_CONFIDENCE_CLARIFY_MIN=0.60
+
 die() {
   echo "❌ $*" >&2
   exit 1

@@ -1,0 +1,131 @@
+{
+  "registry_version": "v0",
+  "intents": [
+    {
+      "intent_id": "latest_camera_original",
+      "title": "latest camera original for a shot",
+      "description": "Returns the most recent camera original version for a specified shot, including storage URI and technical metadata.",
+      "required_params": {
+        "shot_code": {
+          "type": "string",
+          "pattern": "^\\d{3}_\\d{3}$",
+          "description": "Shot code in format XXX_YYY (e.g., 011_021)"
+        }
+      },
+      "optional_params": {},
+      "execution": {
+        "kind": "sql_template",
+        "template_id": "latest_camera_original"
+      },
+      "response_schema_id": "ask_response_v1"
+    },
+    {
+      "intent_id": "lineage_chain_to_latest_edit_export",
+      "title": "lineage chain to latest edit export",
+      "description": "Traces the full derivation chain from camera original through all intermediate versions to the latest edit export for a shot.",
+      "required_params": {
+        "shot_code": {
+          "type": "string",
+          "pattern": "^\\d{3}_\\d{3}$",
+          "description": "Shot code in format XXX_YYY (e.g., 011_021)"
+        }
+      },
+      "optional_params": {},
+      "execution": {
+        "kind": "sql_template",
+        "template_id": "lineage_chain_to_latest_edit_export"
+      },
+      "response_schema_id": "ask_response_v1"
+    },
+    {
+      "intent_id": "shots_with_dailies_no_edit_export",
+      "title": "shots with dailies but no edit export",
+      "description": "Identifies shots that have completed dailies publication but are missing edit exports, indicating a potential workflow blockage.",
+      "required_params": {},
+      "optional_params": {},
+      "execution": {
+        "kind": "sql_template",
+        "template_id": "shots_with_dailies_no_edit_export"
+      },
+      "response_schema_id": "ask_response_v1"
+    },
+    {
+      "intent_id": "shots_ready_for_turnover_and_missing",
+      "title": "shots ready for turnover but not delivered",
+      "description": "Finds shots with completed edit exports that have not yet been delivered to vendors via turnover packages.",
+      "required_params": {},
+      "optional_params": {},
+      "execution": {
+        "kind": "sql_template",
+        "template_id": "shots_ready_for_turnover_and_missing"
+      },
+      "response_schema_id": "ask_response_v1"
+    },
+    {
+      "intent_id": "package_members",
+      "title": "package members",
+      "description": "Lists all version members of a specific delivery package (turnover or archive).",
+      "required_params": {
+        "package_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "description": "UUID of the package"
+        }
+      },
+      "optional_params": {},
+      "execution": {
+        "kind": "sql_template",
+        "template_id": "package_members"
+      },
+      "response_schema_id": "ask_response_v1"
+    },
+    {
+      "intent_id": "source_relink_keys",
+      "title": "source relink keys",
+      "description": "Returns relink metadata (fps, timecode in/out, clip name, reel) for a shot's camera original, used for editorial conform.",
+      "required_params": {
+        "shot_code": {
+          "type": "string",
+          "pattern": "^\\d{3}_\\d{3}$",
+          "description": "Shot code in format XXX_YYY (e.g., 011_021)"
+        }
+      },
+      "optional_params": {},
+      "execution": {
+        "kind": "sql_template",
+        "template_id": "source_relink_keys"
+      },
+      "response_schema_id": "ask_response_v1"
+    },
+    {
+      "intent_id": "latest_versions_by_type",
+      "title": "latest versions by type",
+      "description": "Shows the most recent version of each type (camera original, dailies proxy, edit export, etc.) for a shot.",
+      "required_params": {
+        "shot_code": {
+          "type": "string",
+          "pattern": "^\\d{3}_\\d{3}$",
+          "description": "Shot code in format XXX_YYY (e.g., 011_021)"
+        }
+      },
+      "optional_params": {},
+      "execution": {
+        "kind": "sql_template",
+        "template_id": "latest_versions_by_type"
+      },
+      "response_schema_id": "ask_response_v1"
+    },
+    {
+      "intent_id": "archive_status",
+      "title": "archive status for a production",
+      "description": "Returns archive completion summary: how many shots have been archived versus total shot count.",
+      "required_params": {},
+      "optional_params": {},
+      "execution": {
+        "kind": "sql_template",
+        "template_id": "archive_status"
+      },
+      "response_schema_id": "ask_response_v1"
+    }
+  ]
+}

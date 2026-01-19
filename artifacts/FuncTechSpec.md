@@ -763,3 +763,375 @@ For all SQL-backed queries:
 - Silent coercion, implicit reshaping, or automatic structural correction of data is forbidden
 
 These guarantees prioritize correctness, auditability, and long-term system integrity.
+
+---
+
+End of Appendix F.
+
+## Appendix G — Natural Language Query Processing (Deterministic Routing)
+
+### Purpose
+
+This appendix defines the **Natural Language (NL) Ask** capability: a user may enter a free‑form question, and the system will attempt to **map it deterministically** to a **supported intent** and execute a **predefined deterministic query path** (initially SQL templates; later Stored Procedures), or **reject** the request safely.
+
+This appendix is explicitly designed to preserve the system’s core principles:
+
+- **Deterministic execution**: no dynamic SQL generation; no hallucinated joins/fields.
+- **Auditable routing**: every NL request resolves to a known intent (or rejection), with a recorded trace of the decision.
+- **Demo‑safe UX**: uncertainty yields clarification or rejection—not confident wrong answers.
+- **Separation of concerns**: NL routing is a translation layer; **data truth** comes only from deterministic query execution.
+
+---
+
+### Non‑Negotiable Guarantees (Natural Language Contract)
+
+The NL Ask interface MUST enforce the following user‑visible guarantees:
+
+1. **Bounded capability**
+   - The system can only answer questions that map to an intent in the **Intent Registry**.
+   - If a request cannot be mapped, it is rejected as **unsupported**.
+
+2. **No invented parameters**
+   - The NL layer MUST NOT guess missing required parameters.
+   - If required parameters are missing, the system asks a single clarifying question (see “Clarification Loop”), or rejects if a second pass still cannot proceed.
+
+3. **No invented data**
+   - The NL layer MUST NOT fabricate results.
+   - All answers MUST be derived from deterministic query execution.
+
+4. **Deterministic failure**
+   - The system MUST choose one of the explicit outcomes:
+     - `ok`
+     - `needs_clarification`
+     - `unanswerable`
+     - `error`
+   - It MUST NOT “retry until it works” or loop through alternate prompts/tooling.
+
+5. **Explainable routing**
+   - Responses MUST include the chosen `intent_id` (when applicable) and the validated parameters used for execution.
+   - When rejected, the response MUST indicate whether the reason was **unsupported**, **ambiguous**, **missing parameters**, or **invalid parameters**.
+
+---
+
+### Definitions
+
+**Intent**
+A named, bounded, deterministic query capability (e.g., “archive status for a production”) with:
+
+- A stable `intent_id`
+- A strict parameter contract (required/optional, types, constraints)
+- A deterministic execution binding (SQL template today; Stored Procedure later)
+- A fixed response schema
+
+**Intent Registry**
+The authoritative list of supported intents and their contracts. It is the “menu” of what NL Ask can do.
+
+**Intent Retrieval**
+The process of providing intent definitions to the NL router. In v0 this is a static load of the registry. A future RAG‑powered implementation MAY replace this without changing routing semantics.
+
+---
+
+### Feature Flags & Modes (ENVVAR‑Controlled)
+
+NL Ask behavior MUST be controlled via environment variables to support safe rollout and demo posture.
+
+#### Required ENVVARs
+
+**Default & Failure Behavior**
+
+- The OpenAI API key MUST be supplied via an environment variable (e.g., `OPENAI_API_KEY`) and MUST NOT be embedded in source code or committed configuration files.
+
+- If any NL-related ENVVAR is missing, unreadable, or invalid, the system MUST default to **production-safe behavior**:
+  - NL routing disabled
+  - Deterministic Ask mode only
+  - Dual-mode UI hidden
+  - No LLM calls permitted
+
+- `ASK_NL_ENABLED` (boolean; default `false`)
+  - If `false`, the backend MUST NOT call the LLM router and MUST reject NL mode requests.
+- `ASK_DUAL_MODE_UI` (boolean; default `false`)
+  - If `true` and NL is enabled, the UI MAY expose a “Switch mode” link.
+- `ASK_DEFAULT_MODE` (`deterministic` | `nl`; default `deterministic`)
+  - Determines which mode the Ask page starts in.
+
+#### Confidence Threshold ENVVARs (initial defaults; tunable)
+
+- `ASK_NL_CONFIDENCE_MIN` (float; default `0.80`)
+  - Minimum confidence required to accept a routing decision as executable.
+- `ASK_NL_CONFIDENCE_CLARIFY_MIN` (float; default `0.60`)
+  - Minimum confidence required to offer a clarification question. Below this threshold, reject as `unanswerable`.
+
+---
+
+### UX Requirements (Ask Page)
+
+#### Sample Questions (Dropdown)
+
+- The existing “supported questions” list SHOULD be presented as **Sample Questions** in a dropdown.
+- Selecting a sample question SHOULD prepopulate the NL text box with a usable example (including obvious placeholders for required parameters).
+- Users MAY edit the prepopulated text and submit.
+
+#### Mode Switching
+
+- When `ASK_DUAL_MODE_UI=true` AND `ASK_NL_ENABLED=true`, the UI SHOULD display a small link that toggles between:
+  - **Deterministic** mode (safe)
+  - **Natural Language** mode (beta)
+- When dual‑mode is disabled, the mode link MUST NOT render.
+
+#### Help / Examples in NL Mode
+
+- In NL mode, the UI SHOULD still show sample questions as examples of supported capabilities.
+- The UI MAY provide a small “Help” panel listing 3–7 example prompts, ideally including **at least one representative example per intent** when feasible.
+
+#### Clarification Display
+
+When the backend returns `needs_clarification`, the UI MUST:
+
+- Display the returned `user_message` as a clean, human‑readable prompt (not raw JSON)
+- Allow the user to respond in the same Ask input
+- Submit the user’s clarification as a second routing attempt (see “Clarification Loop”)
+
+---
+
+### NL Routing Architecture (Component Responsibilities)
+
+#### 1) Application Responsibilities (Pre‑LLM)
+
+Before calling the LLM router, the application MUST:
+
+- Accept the user’s input text and basic session context (e.g., selected production)
+- Load supported intents from the Intent Registry (or a retrieved subset)
+- Construct a routing prompt that includes:
+  - The Natural Language Contract rules (above)
+  - The allowable `intent_id` set
+  - Parameter contracts and constraints
+  - Output schema requirements (JSON only; no prose)
+- Enforce feature flags (`ASK_NL_ENABLED`) and mode selection
+
+#### 2) LLM Responsibilities (Router Only)
+
+The LLM MUST perform only:
+
+- **Intent selection** from the allow‑list
+- **Parameter extraction** from the user’s text (and optional session hints)
+- **Uncertainty reporting** via:
+  - `missing_params`
+  - `ambiguity`
+  - `confidence`
+  - optional `user_message` (one question maximum)
+
+The LLM MUST NOT:
+
+- Generate SQL
+- Claim it has executed queries
+- Invent IDs/values when missing
+
+#### 3) Application Responsibilities (Post‑LLM)
+
+After receiving the LLM response, the application MUST:
+
+- Validate the response as schema‑compliant JSON
+  - If invalid: return `unanswerable` (no retries)
+- Validate `intent_id` exists in registry
+- Validate parameter keys, types, and constraints
+- Apply confidence gates in the following order:
+  - If `confidence >= ASK_NL_CONFIDENCE_MIN` and no ambiguity and no missing required params → executable
+  - Else if this is the **initial interpretation attempt**, `confidence >= ASK_NL_CONFIDENCE_CLARIFY_MIN`, and the request is potentially resolvable (e.g., missing required parameters or ambiguous intent) → return `needs_clarification`
+  - Else → `unanswerable`
+
+- Execute the deterministic query path via `AskExecutor` (see below)
+- Return response + evidence in the established Ask response shape
+
+---
+
+### Clarification Loop (One Follow‑Up Maximum)
+
+The NL Ask interface supports at most **one** clarification question per user request:
+
+1. User submits NL question
+2. Router returns either:
+   - executable intent + params (`ok`), or
+   - `needs_clarification` with a single `user_message`
+3. User provides clarification input
+4. System performs exactly one additional routing pass using:
+   - original question
+   - clarification answer
+5. If still not executable after this second pass → `unanswerable` (the system MUST NOT return `needs_clarification` on the second attempt)
+
+This constraint MUST be enforced to avoid looping behavior and to keep UX predictable.
+
+---
+
+### Intent Registry (Authoritative “Supported Universe”)
+
+The Intent Registry MUST be stored as a **single canonical JSON file** in the repo, tracked via version control, and containing an explicit internal `registry_version` (v0). Historical versions are managed by Git; filenames MUST remain stable.
+
+#### Registry Requirements
+
+- Registry is loaded at application startup (or cached)
+- Each intent entry MUST include:
+  - `intent_id` (stable identifier; immutable once published)
+  - `title`
+  - `description`
+  - `required_params` (name, type, constraints, description)
+  - `optional_params` (name, type, constraints, description)
+  - `execution` binding:
+    - `kind`: `sql_template` | `stored_procedure`
+    - `template_id` (if `sql_template`)
+    - `sp_name` + arg mapping (if `stored_procedure`)
+  - `response_schema_id` (or reference to existing response model)
+
+#### Example Intent Entry (Illustrative)
+
+```json
+{
+  "intent_id": "archive_status",
+  "title": "archive status for a production",
+  "description": "Return whether a production has been archived and summarize relevant evidence.",
+  "required_params": {
+    "production_code": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{3,10}$",
+      "description": "Production code, e.g., EXFTR"
+    }
+  },
+  "optional_params": {},
+  "execution": {
+    "kind": "sql_template",
+    "template_id": "archive_status"
+  },
+  "response_schema_id": "ask_archive_status_v1"
+}
+```
+
+> Note: the registry is authoritative. It may represent a subset of templates described elsewhere in the spec.
+
+---
+
+### LLM Router Request / Response Contract
+
+#### Request (Conceptual)
+
+The router request MUST include:
+
+- User question text
+- Optional session hints (e.g., selected production)
+- A set of allowed intents (full registry or retrieved subset)
+- Parameter constraints
+- The output schema definition and strict instructions:
+  - JSON only
+  - no prose
+  - no additional keys
+
+#### Response (Schema Requirements)
+
+The LLM MUST return JSON conforming to a strict schema with these top‑level fields:
+
+- `intent_id`: string | null
+- `confidence`: float (0–1)
+- `params`: object (key/value pairs)
+- `missing_params`: array of strings
+- `ambiguity`: null | object containing candidate intents
+- `user_message`: null | string (single clarification question; REQUIRED when `status = needs_clarification` on the first attempt)
+
+The application MUST treat any schema violation as `unanswerable`.
+
+#### User‑Facing Messaging
+
+- `user_message` is free‑form text intended for display.
+- The UI MUST present it cleanly (no JSON formatting).
+- The application MAY enforce safety constraints:
+  - max length
+  - one question
+  - no claims of execution (“I looked up…”) prior to deterministic execution
+
+---
+
+### Deterministic Execution Layer (AskExecutor)
+
+To decouple NL routing from query implementation details, execution MUST occur through a thin execution interface:
+
+- `AskExecutor` (interface / protocol)
+  - `execute(intent_id, params) -> AskResponse`
+
+#### Implementations
+
+- `SqlTemplateExecutor` (v0)
+  - Uses existing SQL templates in code
+- `StoredProcedureExecutor` (future)
+  - Calls deterministic stored procedures
+  - Returns the exact same response schema as`SqlTemplateExecutor` above
+
+#### TODO / Refactor Hooks
+
+- TODO: introduce `StoredProcedureExecutor` and migrate one high‑value intent as a proof of pattern (future)
+- TODO: move all SQL out of code and into stored procedures while keeping `AskExecutor` stable (future)
+
+---
+
+### Intent Retrieval Hook (Future RAG Placeholder)
+
+To support future RAG‑based intent retrieval without altering behavior:
+
+- Introduce an `IntentRetriever` abstraction:
+  - `get_candidate_intents(user_text, session_context) -> [IntentDefinition]`
+
+#### v0 Implementation
+
+- `StaticIntentRetriever` returns all intents (or a simple subset rule)
+
+#### Future Implementation (Optional)
+
+- `RagIntentRetriever` uses embeddings to retrieve the top‑K relevant intent definitions and examples
+- This improves prompt size and routing accuracy but MUST NOT change determinism rules
+
+---
+
+### Logging & Observability (NL + Ask)
+
+NL Ask MUST log enough data to reconstruct every decision and handoff.
+
+Minimum requirements (structured logs preferred):
+
+1. **API ingress**
+   - `request_id`, timestamp
+   - mode (`deterministic` | `nl`)
+   - raw user input
+   - session context identifiers (if any)
+
+2. **Router call**
+   - prompt metadata (model id, version, token counts if available)
+   - router response (raw JSON)
+   - schema validation result
+   - confidence gates outcome
+
+3. **Execution**
+   - `intent_id`
+   - validated params
+   - execution binding (`template_id` or `sp_name`)
+   - query timing metrics
+   - row counts / evidence counts (avoid logging massive payloads unless explicitly enabled)
+
+4. **API egress**
+   - response status (`ok` | `needs_clarification` | `unanswerable` | `error`)
+   - error code (if any)
+
+---
+
+### Deterministic Error Semantics (NL Layer)
+
+The NL layer MUST map outcomes into the existing Ask error semantics:
+
+- `needs_clarification`
+  - missing required parameters, or ambiguous intent, or low confidence above clarify threshold
+- `unanswerable`
+  - unsupported intent
+  - low confidence below clarify threshold
+  - schema validation failure
+  - second-pass clarification still not executable
+- `error`
+  - deterministic execution failed (DB error, etc.) with explicit error handling as defined elsewhere in the spec
+
+---
+
+End of Appendix G.

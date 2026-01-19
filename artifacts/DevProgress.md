@@ -428,3 +428,343 @@ curl -X POST http://127.0.0.1:8000/api/import/seed -H "Content-Type: application
 curl "http://127.0.0.1:8000/api/shots/011_021/lineage?production_code=EXFTR"
 # Should return HTTP 200 with valid JSON chain
 ```
+
+---
+
+## 2026-01-12 – Natural Language Ask Routing Implementation (Appendix G)
+
+Implemented complete Natural Language Ask routing system per FuncTechSpec Appendix G requirements.
+
+### Summary
+
+This implementation adds LLM-based intent routing to the Ask system while preserving strict deterministic execution. The system routes natural language questions to predefined intents, extracts parameters, and enforces confidence gating with optional clarification loops. All execution remains deterministic via SQL templates (Phase 1).
+
+### Backend Components
+
+**Files created:**
+
+- `apps/api/app/intent_registry.json` - Canonical intent registry (v0) with 8 intents:
+  - `latest_camera_original`
+  - `lineage_chain_to_latest_edit_export`
+  - `shots_with_dailies_no_edit_export`
+  - `shots_ready_for_turnover_and_missing`
+  - `package_members`
+  - `source_relink_keys`
+  - `latest_versions_by_type`
+  - `archive_status`
+  - Each intent defines: intent_id, title, description, required/optional params with validation patterns, execution binding (sql_template)
+  - Registry is Git-versioned and loaded at startup
+
+- `apps/api/app/ask_executor.py` - AskExecutor interface and SqlTemplateExecutor implementation:
+  - `AskExecutor` protocol defines `execute(intent_id, params)` interface
+  - `SqlTemplateExecutor` implements Phase 1 execution via existing SQL templates
+  - Decouples routing from execution (future: stored procedures)
+  - Validates intent_id and ensures production_code is present
+
+- `apps/api/app/nl_router.py` - NL routing with LLM integration:
+  - `IntentRegistry` class loads and validates intent registry JSON
+  - `NLRouter` class implements LLM-based intent resolution using OpenAI GPT-4o-mini
+  - Routing logic:
+    - Builds prompt with intent allowlist and parameter schemas
+    - Calls LLM with strict JSON output format
+    - Validates LLM response schema and intent_id
+    - Validates extracted parameters against intent schema (type, pattern)
+  - Confidence gating per Appendix G:
+    - confidence >= ASK_NL_CONFIDENCE_MIN (0.80) + no ambiguity + all required params → OK
+    - confidence >= ASK_NL_CONFIDENCE_CLARIFY_MIN (0.60) + first attempt + potentially resolvable → NEEDS_CLARIFICATION
+    - else → UNANSWERABLE
+    - Second attempt MUST resolve to OK or UNANSWERABLE (no further clarification)
+  - `RoutingStatus` enum: OK, NEEDS_CLARIFICATION, UNANSWERABLE, ERROR
+  - `RoutingResult` dataclass captures routing outcome with confidence, params, missing_params, ambiguity, user_message
+
+**Files modified:**
+
+- `apps/api/requirements.txt` - Added `openai==1.54.0` dependency
+
+- `apps/api/app/config.py` - Added NL Ask ENVVARs per Appendix G:
+  - `openai_api_key` (Optional[str], default None) - OpenAI API key (MUST NOT be committed)
+  - `ask_nl_enabled` (bool, default False) - Master NL feature flag
+  - `ask_dual_mode_ui` (bool, default False) - Show mode switcher in UI
+  - `ask_default_mode` (str, default "deterministic") - Initial mode on page load
+  - `ask_nl_confidence_min` (float, default 0.80) - Min confidence for execution
+  - `ask_nl_confidence_clarify_min` (float, default 0.60) - Min confidence for clarification
+  - `is_nl_enabled()` method checks both flag and API key presence
+  - Production-safe defaults: all NL features disabled by default
+
+- `apps/api/app/schemas.py` - Added NL request/response types:
+  - `AskRequest` extended with:
+    - `mode` (Optional[str], default "deterministic") - "deterministic" or "nl"
+    - `clarification_context` (Optional[Dict]) - For second-pass clarification
+  - `AskClarificationResponse` schema for clarification responses:
+    - `status` = "needs_clarification"
+    - `user_message` (str) - Human-readable clarification question
+    - `intent_id`, `confidence`, `missing_params` (optional metadata)
+
+- `apps/api/app/routes.py` - Updated Ask endpoint for dual-mode operation:
+  - Added `GET /api/config/ask` endpoint to expose NL config to frontend
+  - `POST /api/ask` now supports both modes via `request.mode` parameter
+  - Mode validation: rejects NL requests if `ASK_NL_ENABLED=false` or API key missing
+  - Split handling into `_handle_deterministic_ask()` and `_handle_nl_ask()`
+  - NL path:
+    - Gets NLRouter instance (lazily initialized with OpenAI client)
+    - Builds session context with production_code
+    - Calls `router.route()` with clarification tracking
+    - Handles routing outcomes:
+      - OK → execute via AskExecutor
+      - NEEDS_CLARIFICATION → return AskClarificationResponse
+      - UNANSWERABLE → HTTP 400 error
+      - ERROR → HTTP 500 error
+  - Enhanced logging:
+    - `_log_ask_failure()` extended with `mode` parameter
+    - `_log_nl_routing()` logs all NL routing attempts with confidence, status, intent_id
+  - Error handling preserves Appendix E semantics (no raw errors to users)
+
+### Frontend Components
+
+**Files modified:**
+
+- `apps/web/src/api/client.ts` - Updated API client:
+  - Added `AskClarificationResponse` interface
+  - Added `AskConfig` interface for config endpoint
+  - Updated `askQuestion()` to accept `mode` and `clarificationContext` parameters
+  - Added `getAskConfig()` method to fetch NL availability
+
+- `apps/web/src/pages/Ask.tsx` - Updated Ask page for NL mode:
+  - Loads Ask config on mount via `useEffect(() => api.getAskConfig())`
+  - State management:
+    - `currentMode` tracks "deterministic" | "nl"
+    - `clarification` stores clarification response if present
+    - `clarificationContext` tracks state for second-pass clarification
+  - Mode switcher (only visible if `dual_mode_ui=true` and `nl_enabled=true`):
+    - Toggle between deterministic and NL modes
+    - Shows "beta" badge for NL mode
+    - Clears previous results when switching modes
+  - `handleAsk()` updated:
+    - Passes mode and clarificationContext to API
+    - Detects clarification response and updates UI
+    - Clears clarification state on successful execution
+  - Clarification UI:
+    - Displays `user_message` in highlighted box
+    - Shows confidence percentage if available
+    - Prompts user to provide clarification and re-submit
+    - Indicates clarification mode with visual feedback
+  - Question placeholder text adapts to mode
+  - Supported Questions → Sample Questions in NL mode
+
+### Architecture Compliance (Appendix G Guarantees)
+
+**Deterministic Execution:**
+
+- NL layer ONLY performs intent selection and parameter extraction
+- All query execution uses existing SQL templates via AskExecutor
+- No dynamic SQL generation
+- No hallucinated joins or invented data
+
+**Bounded Capability:**
+
+- System can only answer questions mapped to Intent Registry
+- Unsupported questions are rejected as "unanswerable"
+- No guessing or invented parameters
+
+**Explainable Routing:**
+
+- All responses include `intent_id` (when applicable)
+- Validated parameters are logged
+- Confidence values are tracked and logged
+- Routing outcomes are deterministic (ok / needs_clarification / unanswerable / error)
+
+**Clarification Loop:**
+
+- Maximum one clarification cycle per user request
+- First attempt can return NEEDS_CLARIFICATION
+- Second attempt MUST resolve to OK or UNANSWERABLE
+- No conversational loops or retry-until-success behavior
+
+**Production-Safe Defaults:**
+
+- Missing or invalid ENVVARs → NL disabled, deterministic mode only
+- OpenAI API key MUST be in ENVVAR (never committed)
+- Dual-mode UI hidden unless explicitly enabled
+- Default mode is deterministic (safe)
+
+**Error Handling:**
+
+- User-facing errors follow Appendix E semantics
+- No raw HTTP status codes or stack traces in UI
+- Structured logging to stdout for observability
+- LLM schema violations → unanswerable (no retries)
+
+### Phase 1 Scope
+
+This implementation completes Phase 1 requirements:
+
+- SQL template execution only (no stored procedures yet)
+- No RAG or embeddings (static registry load)
+- No dynamic intent retrieval (future: `IntentRetriever` abstraction)
+- No multi-input transforms (single-intent routing only)
+
+### Future Hooks (Explicit TODOs per Appendix G)
+
+The following abstractions are in place for future phases:
+
+- `AskExecutor` interface → ready for `StoredProcedureExecutor` implementation
+- `IntentRegistry` → ready for RAG-based `IntentRetriever` (retrieve top-K intents instead of loading all)
+- Confidence thresholds are configurable via ENVVARs (tunable in production)
+
+### Files Changed Summary
+
+**Backend (7 files):**
+
+- `apps/api/requirements.txt` - Added openai dependency
+- `apps/api/app/config.py` - Added 6 NL ENVVARs
+- `apps/api/app/schemas.py` - Added AskClarificationResponse
+- `apps/api/app/intent_registry.json` - NEW (Intent Registry v0)
+- `apps/api/app/ask_executor.py` - NEW (AskExecutor + SqlTemplateExecutor)
+- `apps/api/app/nl_router.py` - NEW (NLRouter + IntentRegistry + confidence gating)
+- `apps/api/app/routes.py` - Updated /ask endpoint for dual-mode operation, added /config/ask
+
+**Frontend (2 files):**
+
+- `apps/web/src/api/client.ts` - Added NL types and API methods
+- `apps/web/src/pages/Ask.tsx` - Added mode switcher and clarification UI
+
+### Testing Notes
+
+To enable NL mode:
+
+```bash
+# Set environment variables in .env or shell
+export OPENAI_API_KEY="sk-..."
+export ASK_NL_ENABLED=true
+export ASK_DUAL_MODE_UI=true
+export ASK_DEFAULT_MODE=deterministic  # or "nl"
+export ASK_NL_CONFIDENCE_MIN=0.80
+export ASK_NL_CONFIDENCE_CLARIFY_MIN=0.60
+
+# Restart API server
+cd apps/api
+./run.sh
+```
+
+UI will show mode switcher when dual_mode_ui=true. Users can toggle between deterministic (safe, keyword-based) and NL (LLM-based) modes.
+
+### Known Limitations (Phase 1)
+
+- LLM calls have latency (~1-3 seconds per routing attempt)
+- Confidence thresholds may require tuning based on real usage
+- Intent Registry is static (no RAG retrieval yet)
+- Only 8 intents supported (matches existing templates)
+- No batch or multi-turn conversations (single question at a time)
+
+### Compliance Checklist
+
+- ✅ Implements all Appendix G required components
+- ✅ Preserves Appendix E error handling semantics
+- ✅ Follows CodingStandards.md (type hints, PEP 8, explicit over clever)
+- ✅ Follows CommitGuide.md conventions (will commit with appropriate message)
+- ✅ No linter errors in modified files
+- ✅ Production-safe defaults (NL disabled unless explicitly enabled)
+- ✅ Deterministic execution (no dynamic SQL)
+- ✅ Explainable routing (intent_id + confidence + params logged)
+- ✅ Clarification loop enforced (max 1 follow-up)
+- ✅ No invented data or parameters
+
+### Result
+
+The system now supports both deterministic (keyword-based) and natural language (LLM-based) Ask modes. NL mode routes questions to intents using GPT-4o-mini, extracts parameters, enforces confidence gates, and optionally asks for clarification. All execution remains deterministic via SQL templates. The implementation is fully compliant with Appendix G requirements and preserves the system's core deterministic guarantees.
+
+---
+
+## 2026-01-12 – NL Trace Logging for Diagnostics
+
+Added optional NL trace logging for intent selection and clarification diagnostics.
+
+### Changes
+
+**Backend (2 files):**
+
+- `apps/api/app/config.py` - Added `ask_nl_trace: bool` setting (default: False)
+- `apps/api/app/nl_router.py` - Added structured JSON trace logging at 6 pipeline stages:
+  1. `nl_request_received` - Logs incoming question, clarification flag, production context
+  2. `nl_registry_loaded` - Logs registry version and candidate intents
+  3. `nl_prompt_built` - Logs model, temperature, prompt preview (1200 chars), full prompt hash
+  4. `nl_openai_raw_response` - Logs raw LLM response preview (1200 chars)
+  5. `nl_openai_parsed` - Logs extracted intent_id, confidence, missing_params, user_message
+  6. `nl_decision` - Logs routing decision, reason, thresholds applied
+
+### Implementation Notes
+
+- Each NL request generates a unique `trace_id` (uuid4) reused across all log lines
+- Logs are emitted as structured JSON to standard logging (console)
+- Long content (prompts, responses) is truncated to 1200 characters with hash for verification
+- No changes to routing logic, thresholds, or Appendix G semantics
+- API key is never logged; all other data may be logged when trace is enabled
+- No performance impact when `ASK_NL_TRACE=false` (default)
+
+### Usage
+
+To enable trace logging:
+
+```bash
+export ASK_NL_TRACE=true
+```
+
+Trace logs will show every handoff in the NL pipeline, making it possible to diagnose why clarification is or isn't triggering, observe confidence scores at each stage, and verify prompt construction.
+
+---
+
+## 2026-01-12 – Fixed NL Clarification Behavior for Missing Parameters and Ambiguity
+
+Fixed natural language router to properly trigger clarification responses instead of returning hard 400 "unsupported_question" errors when parameters are missing or questions are ambiguous.
+
+### Problem
+
+When users asked questions like "What is the latest camera original?" (without specifying shot_code), the LLM correctly identified missing parameters and generated a clarifying question, but the router returned `routing_status=unanswerable` because the LLM also returned `intent_id=null`. This violated the expected clarification loop behavior.
+
+### Solution
+
+**Prompt refinement:**
+
+- Updated LLM prompt to instruct that when exactly ONE intent matches but parameters are missing, it should return that intent_id along with missing_params and user_message (not intent_id=null)
+- Clarified that intent_id=null should only be used for true ambiguity between multiple intents
+- Added explicit confidence guidelines for missing-param scenarios (0.60-0.79 typical)
+
+**Routing logic changes:**
+
+- Restructured `_apply_confidence_gates()` method to check for clarification signals (missing_params, ambiguity, user_message) BEFORE applying confidence thresholds
+- First attempt with any clarification signal → NEEDS_CLARIFICATION (regardless of confidence level)
+- Second attempt (is_clarification=True) with clarification signals → UNANSWERABLE (prevents loops per Appendix G)
+- Only executable paths require high confidence (≥0.80) with all required params present
+
+**Validation guardrails:**
+
+- Added guard to prevent clarification loops (max 1 cycle per Appendix G)
+- Validates intent_id exists in registry before attempting execution
+- Maintains all ASK_NL_TRACE logging with updated reason strings
+
+### Changes
+
+**Backend (1 file):**
+
+- `apps/api/app/nl_router.py`:
+  - Updated `_build_routing_prompt()` with clearer instructions for missing-param vs ambiguity cases
+  - Rewrote `_apply_confidence_gates()` to prioritize clarification detection over confidence thresholds
+  - Added clarification loop prevention guard for is_clarification=True cases
+  - Updated trace logging reasons to reflect new decision paths
+
+### Behavior
+
+**Before:**
+
+- "What is the latest camera original?" → 400 error (unsupported_question)
+
+**After:**
+
+- "What is the latest camera original?" → 200 with needs_clarification, user_message: "To answer this question, I need: shot_code. Can you provide this information?"
+- User provides shot_code → 200 with ok status and query results
+
+**Constraints maintained:**
+
+- Max 1 clarification cycle (Appendix G)
+- Deterministic execution only (no dynamic SQL)
+- All execution through registered intent templates

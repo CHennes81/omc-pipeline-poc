@@ -15,6 +15,17 @@ from app.config import settings
 router = APIRouter()
 
 
+# Configuration endpoint
+@router.get("/config/ask")
+def get_ask_config():
+    """Get Ask configuration for frontend (NL mode availability)."""
+    return {
+        "nl_enabled": settings.is_nl_enabled(),
+        "dual_mode_ui": settings.ask_dual_mode_ui,
+        "default_mode": settings.ask_default_mode
+    }
+
+
 # Import/Seed
 @router.post("/import/seed", response_model=schemas.SeedResponse)
 def import_seed(request: schemas.SeedRequest, db: Session = Depends(get_db)):
@@ -317,9 +328,32 @@ def get_package_members(package_id: UUID, db: Session = Depends(get_db)):
 
 
 # Ask
-@router.post("/ask", response_model=schemas.AskResponse)
+@router.post("/ask")
 def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
-    """Answer a question using deterministic templates."""
+    """Answer a question using deterministic or NL routing.
+
+    Supports two modes:
+    - deterministic: Uses keyword-based routing (default, always available)
+    - nl: Uses LLM-based intent routing (requires ASK_NL_ENABLED=true)
+
+    Returns AskResponse or AskClarificationResponse depending on routing outcome.
+    """
+    from app import nl_router, ask_executor
+
+    # Determine mode (default to deterministic for safety)
+    mode = request.mode or "deterministic"
+
+    # Check if NL mode is requested but not enabled
+    if mode == "nl" and not settings.is_nl_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "nl_mode_disabled",
+                "message": "Natural language mode is not enabled",
+                "category": "unanswerable_question"
+            }
+        )
+
     template_name = None
     error_code = None
     error_category = None
@@ -327,73 +361,12 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
     stack_trace = None
 
     try:
-        # Route question to template
-        try:
-            template_name, params = ask_templates.route_question(request.question)
-        except Exception as routing_error:
-            # Routing logic itself failed (shouldn't happen, but handle gracefully)
-            error_code = "unsupported_question"
-            error_category = "unanswerable_question"
-            exception_message = f"Question routing failed: {str(routing_error)}"
-            stack_trace = traceback.format_exc()
-
-            # Log the failure
-            _log_ask_failure(
-                production_code=request.production_code,
-                question=request.question,
-                template_name=None,
-                error_code=error_code,
-                error_category=error_category,
-                exception_message=exception_message,
-                stack_trace=stack_trace,
-            )
-
-            # Return 400 with error envelope per Appendix E
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": error_code,
-                    "message": exception_message,
-                    "category": error_category,
-                }
-            )
-
-        # Check if routing failed (unsupported or ambiguous)
-        if not template_name or template_name not in ask_templates.TEMPLATES:
-            error_code = "unsupported_question"
-            error_category = "unanswerable_question"
-            exception_message = "Question could not be mapped to a supported template"
-
-            # Log the failure
-            _log_ask_failure(
-                production_code=request.production_code,
-                question=request.question,
-                template_name=None,
-                error_code=error_code,
-                error_category=error_category,
-                exception_message=exception_message,
-                stack_trace=None,
-            )
-
-            # Return 400/422 with error envelope per Appendix E
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": error_code,
-                    "message": exception_message,
-                    "category": error_category,
-                }
-            )
-
-        template_func = ask_templates.TEMPLATES[template_name]
-
-        # Add production_code to params if not present
-        if "production_code" not in params:
-            params["production_code"] = request.production_code
-
-        # Execute template
-        result = template_func(db, **params)
-        return result
+        if mode == "nl":
+            # NL routing path
+            return _handle_nl_ask(request, db)
+        else:
+            # Deterministic routing path (existing logic)
+            return _handle_deterministic_ask(request, db)
 
     except HTTPException:
         # Re-raise HTTPExceptions (already logged and formatted)
@@ -414,6 +387,7 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
             error_category=error_category,
             exception_message=exception_message,
             stack_trace=stack_trace,
+            mode=mode,
         )
 
         # Return 500 with error envelope per Appendix E
@@ -441,6 +415,7 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
             error_category=error_category,
             exception_message=exception_message,
             stack_trace=stack_trace,
+            mode=mode,
         )
 
         # Return 500 with error envelope per Appendix E
@@ -454,6 +429,177 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
         )
 
 
+def _handle_deterministic_ask(request: schemas.AskRequest, db: Session) -> schemas.AskResponse:
+    """Handle deterministic ask using keyword routing."""
+    template_name = None
+
+    try:
+        # Route question to template
+        template_name, params = ask_templates.route_question(request.question)
+    except Exception as routing_error:
+        # Routing logic itself failed
+        error_code = "unsupported_question"
+        error_category = "unanswerable_question"
+        exception_message = f"Question routing failed: {str(routing_error)}"
+        stack_trace = traceback.format_exc()
+
+        # Log the failure
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=None,
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=stack_trace,
+            mode="deterministic",
+        )
+
+        # Return 400 with error envelope per Appendix E
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": error_code,
+                "message": exception_message,
+                "category": error_category,
+            }
+        )
+
+    # Check if routing failed (unsupported or ambiguous)
+    if not template_name or template_name not in ask_templates.TEMPLATES:
+        error_code = "unsupported_question"
+        error_category = "unanswerable_question"
+        exception_message = "Question could not be mapped to a supported template"
+
+        # Log the failure
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=None,
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=None,
+            mode="deterministic",
+        )
+
+        # Return 400/422 with error envelope per Appendix E
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": error_code,
+                "message": exception_message,
+                "category": error_category,
+            }
+        )
+
+    template_func = ask_templates.TEMPLATES[template_name]
+
+    # Add production_code to params if not present
+    if "production_code" not in params:
+        params["production_code"] = request.production_code
+
+    # Execute template
+    result = template_func(db, **params)
+    return result
+
+
+def _handle_nl_ask(request: schemas.AskRequest, db: Session):
+    """Handle NL ask using LLM-based intent routing.
+
+    Returns AskResponse or AskClarificationResponse depending on routing outcome.
+    """
+    from app import nl_router, ask_executor
+
+    # Get router
+    router = nl_router.get_router()
+    if not router:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "nl_router_unavailable",
+                "message": "NL router could not be initialized",
+                "category": "internal_error"
+            }
+        )
+
+    # Determine if this is a clarification attempt
+    is_clarification = request.clarification_context is not None
+
+    # Build session context
+    session_context = {"production_code": request.production_code}
+    if request.clarification_context:
+        session_context.update(request.clarification_context)
+
+    # Route question
+    routing_result = router.route(
+        question=request.question,
+        session_context=session_context,
+        is_clarification=is_clarification
+    )
+
+    # Log NL routing attempt
+    _log_nl_routing(
+        production_code=request.production_code,
+        question=request.question,
+        routing_result=routing_result,
+        is_clarification=is_clarification
+    )
+
+    # Handle routing outcome
+    if routing_result.status == nl_router.RoutingStatus.OK:
+        # Execute query via AskExecutor
+        executor = ask_executor.get_executor()
+        params = routing_result.params or {}
+        params["production_code"] = request.production_code
+
+        result = executor.execute(db, routing_result.intent_id, params)
+        return result
+
+    elif routing_result.status == nl_router.RoutingStatus.NEEDS_CLARIFICATION:
+        # Return clarification response
+        return schemas.AskClarificationResponse(
+            status="needs_clarification",
+            user_message=routing_result.user_message or "Could you provide more details?",
+            intent_id=routing_result.intent_id,
+            confidence=routing_result.confidence,
+            missing_params=routing_result.missing_params,
+            ambiguity=routing_result.ambiguity
+        )
+
+    elif routing_result.status == nl_router.RoutingStatus.UNANSWERABLE:
+        # Return HTTP 200 with unanswerable response (expected workflow outcome, not an error)
+        return schemas.AskUnanswerableResponse(
+            status="unanswerable",
+            error_code=routing_result.error_code or "unanswerable_question",
+            message=routing_result.error_message or "Question could not be mapped to a supported intent",
+            intent_id=routing_result.intent_id,
+            confidence=routing_result.confidence
+        )
+
+    else:  # ERROR
+        # Map to internal error
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=None,
+            error_code=routing_result.error_code or "routing_error",
+            error_category="data_retrieval_failure",
+            exception_message=routing_result.error_message or "NL routing failed",
+            stack_trace=None,
+            mode="nl",
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": routing_result.error_code or "routing_error",
+                "message": routing_result.error_message or "NL routing failed",
+                "category": "data_retrieval_failure"
+            }
+        )
+
+
 def _log_ask_failure(
     production_code: str,
     question: str,
@@ -462,12 +608,14 @@ def _log_ask_failure(
     error_category: str,
     exception_message: str,
     stack_trace: Optional[str],
+    mode: str = "deterministic",
 ):
     """Emit structured JSON log line to stdout per Appendix E.5."""
     log_entry = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "environment": settings.app_env,
         "endpoint": "/api/ask",
+        "mode": mode,
         "production_code": production_code,
         "question": question,
         "template": template_name,
@@ -480,6 +628,32 @@ def _log_ask_failure(
         log_entry["stack_trace"] = stack_trace
 
     # Emit as single-line JSON to stdout (Railway/local dev will capture)
+    print(json.dumps(log_entry, ensure_ascii=False))
+
+
+def _log_nl_routing(
+    production_code: str,
+    question: str,
+    routing_result,
+    is_clarification: bool
+):
+    """Emit structured log for NL routing attempts per Appendix G."""
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "environment": settings.app_env,
+        "endpoint": "/api/ask",
+        "mode": "nl",
+        "production_code": production_code,
+        "question": question,
+        "is_clarification": is_clarification,
+        "routing_status": routing_result.status,
+        "intent_id": routing_result.intent_id,
+        "confidence": routing_result.confidence,
+        "missing_params": routing_result.missing_params,
+        "error_code": routing_result.error_code,
+    }
+
+    # Emit as single-line JSON to stdout
     print(json.dumps(log_entry, ensure_ascii=False))
 
 
