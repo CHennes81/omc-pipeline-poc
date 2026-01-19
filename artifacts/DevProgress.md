@@ -896,6 +896,49 @@ curl -X POST http://127.0.0.1:8000/api/ask \
 
 ---
 
+## 2026-01-12 – Updated Ask Error Message Styling in Chat Transcript
+
+Changed error message styling in Ask chat transcript to render as normal assistant bubbles instead of red error boxes.
+
+### Changes
+
+**Frontend (1 file):**
+
+- `apps/web/src/pages/Ask.tsx` - Removed error-specific styling from chat transcript message rendering:
+  - Error messages now use same styling as normal assistant messages:
+    - `backgroundColor: 'var(--dashboard-surface)'` (was red background)
+    - `border: '1px solid var(--dashboard-border)'` (was red border)
+    - `color: 'var(--dashboard-text-primary)'` (was red text)
+  - Clarification messages retain yellow styling (unchanged)
+  - DEV-only debug panel (`AskErrorPanel`) retains red error styling (unchanged)
+
+### Implementation Notes
+
+- Error messages in chat transcript now appear as standard assistant bubbles
+- No changes to error semantics, message text, or envelope parsing
+- Bubble layout and message history behavior unchanged
+- Debug panel on right side continues to use error styling for diagnostics
+
+### Verification
+
+To verify the change:
+
+```bash
+# 1. Start frontend dev server
+cd apps/web
+npm run dev
+
+# 2. Trigger an error (e.g., invalid question or network error)
+# Expected: Error message appears in chat as normal assistant bubble (not red)
+# Expected: DEV debug panel on right still shows red error styling
+```
+
+**Files changed:**
+
+- `apps/web/src/pages/Ask.tsx` - Removed error-specific styling from chat transcript
+
+---
+
 ## 2026-01-12 – Fixed NL Clarification Behavior for Missing Parameters and Ambiguity
 
 Fixed natural language router to properly trigger clarification responses instead of returning hard 400 "unsupported_question" errors when parameters are missing or questions are ambiguous.

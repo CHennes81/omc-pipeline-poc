@@ -350,25 +350,16 @@ export function AskPage() {
                         backgroundColor:
                           msg.role === 'user'
                             ? 'var(--dashboard-accent)'
-                            : msg.kind === 'error'
-                              ? 'rgba(239, 68, 68, 0.1)'
-                              : msg.kind === 'clarification'
-                                ? 'rgba(255, 193, 7, 0.1)'
-                                : 'var(--dashboard-surface)',
+                            : msg.kind === 'clarification'
+                              ? 'rgba(255, 193, 7, 0.1)'
+                              : 'var(--dashboard-surface)',
                         border:
                           msg.role === 'user'
                             ? 'none'
-                            : msg.kind === 'error'
-                              ? '1px solid rgba(239, 68, 68, 0.3)'
-                              : msg.kind === 'clarification'
-                                ? '1px solid rgba(255, 193, 7, 0.3)'
-                                : '1px solid var(--dashboard-border)',
-                        color:
-                          msg.role === 'user'
-                            ? 'white'
-                            : msg.kind === 'error'
-                              ? '#fca5a5'
-                              : 'var(--dashboard-text-primary)',
+                            : msg.kind === 'clarification'
+                              ? '1px solid rgba(255, 193, 7, 0.3)'
+                              : '1px solid var(--dashboard-border)',
+                        color: msg.role === 'user' ? 'white' : 'var(--dashboard-text-primary)',
                         fontSize: '14px',
                         lineHeight: '1.5',
                         wordWrap: 'break-word',
