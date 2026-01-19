@@ -801,7 +801,13 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session, context: dict):
     else:  # ERROR
         # Map to internal error
         error_code = routing_result.error_code or "routing_error"
-        error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+        # Timeout errors map to remote_services_unavailable
+        if error_code == "llm_timeout":
+            error_category = ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE
+            http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+        else:
+            error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+            http_status = status.HTTP_500_INTERNAL_SERVER_ERROR
         exception_message = routing_result.error_message or "NL routing failed"
 
         _log_ask_failure(
@@ -817,7 +823,7 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session, context: dict):
         )
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status,
             detail={
                 "code": error_code,
                 "message": ASK_USER_MESSAGES[error_category],

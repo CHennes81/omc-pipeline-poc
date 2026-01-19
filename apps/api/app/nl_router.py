@@ -291,6 +291,13 @@ class NLRouter:
 
             return result
 
+        except (TimeoutError, OSError) as e:
+            # Network timeout or connection error during LLM call
+            return RoutingResult(
+                status=RoutingStatus.ERROR,
+                error_code="llm_timeout",
+                error_message=f"LLM request timed out or connection failed: {str(e)}"
+            )
         except json.JSONDecodeError as e:
             return RoutingResult(
                 status=RoutingStatus.UNANSWERABLE,
@@ -1155,7 +1162,8 @@ def get_router() -> Optional[NLRouter]:
     if _router is None:
         # Initialize registry and router
         _registry = IntentRegistry()
-        openai_client = OpenAI(api_key=settings.openai_api_key)
+        # Set 15 second timeout for LLM calls to prevent hanging on network issues
+        openai_client = OpenAI(api_key=settings.openai_api_key, timeout=12.0)
         _router = NLRouter(_registry, openai_client)
 
     return _router

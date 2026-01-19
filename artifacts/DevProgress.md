@@ -896,6 +896,62 @@ curl -X POST http://127.0.0.1:8000/api/ask \
 
 ---
 
+## 2026-01-12 – Added Hard Timeout for NL Routing LLM Calls
+
+Implemented 15-second hard timeout on Natural Language routing LLM calls to prevent hanging when network connectivity is lost.
+
+### Changes
+
+**Backend (2 files):**
+
+- `apps/api/app/nl_router.py`:
+  - Added `timeout=15.0` parameter to OpenAI client initialization
+  - Added specific exception handling for `TimeoutError` and `OSError` during LLM calls
+  - Returns `RoutingResult` with `error_code="llm_timeout"` when timeout occurs
+- `apps/api/app/routes.py`:
+  - Updated ERROR status handling in `_handle_nl_ask` to map `llm_timeout` errors to `remote_services_unavailable`
+  - Timeout errors return HTTP 503 (Service Unavailable) instead of HTTP 500
+  - Other routing errors continue to map to `data_retrieval_failure` with HTTP 500
+
+### Implementation Notes
+
+- Timeout value: **15 seconds** (hard limit enforced by OpenAI SDK)
+- Timeout exceptions are caught and logged with `error_code="llm_timeout"`
+- Timeout errors are mapped to `ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE` category
+- HTTP status: 503 (Service Unavailable) for timeouts
+- No retries, backoff, or vendor-specific exception taxonomy
+- Existing routing semantics unchanged
+
+### Verification
+
+To verify the timeout:
+
+```bash
+# 1. Start API server
+cd apps/api
+./run.sh
+
+# 2. Test with Wi-Fi off (simulates network timeout)
+# Disable network connectivity, then:
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+# Expected: Request completes within ~15 seconds (not hanging indefinitely)
+# Expected: HTTP 503 with category "remote_services_unavailable"
+# Expected: Error log includes error_code="llm_timeout"
+
+# 3. Verify timeout is enforced (should not exceed 15 seconds)
+# Use a network throttling tool or simulate slow connection
+# Expected: Request fails with timeout after 15 seconds maximum
+```
+
+**Files changed:**
+
+- `apps/api/app/nl_router.py` - Added 15-second timeout to OpenAI client, timeout exception handling
+- `apps/api/app/routes.py` - Updated error mapping for timeout errors to remote_services_unavailable
+
+---
+
 ## 2026-01-12 – Updated Ask Error Message Styling in Chat Transcript
 
 Changed error message styling in Ask chat transcript to render as normal assistant bubbles instead of red error boxes.
