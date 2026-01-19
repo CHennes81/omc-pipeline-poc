@@ -842,6 +842,60 @@ curl -X POST http://127.0.0.1:8000/api/ask \
 
 ---
 
+## 2026-01-12 – Fixed NameError for Ask Error Taxonomy Constants
+
+Fixed runtime crash caused by undefined error taxonomy constants in `/api/ask` endpoint.
+
+### Problem
+
+`NameError: ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE is not defined` occurred in `_handle_nl_ask` and outer catch-all, causing Ask UI to hang on "Thinking..." because the API never returned a response.
+
+### Solution
+
+**Backend (1 file):**
+
+- `apps/api/app/routes.py` - Added error taxonomy constants at module scope:
+  - `ASK_ERROR_CATEGORY_UNANSWERABLE = "unanswerable"`
+  - `ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE = "data_retrieval_failure"`
+  - `ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE = "remote_services_unavailable"`
+  - `ASK_USER_MESSAGES` dict mapping categories to user-facing messages
+
+### Implementation Notes
+
+- Constants defined at module level (after router initialization) for consistent access
+- All 13 references to error categories now use the defined constants
+- Behavior unchanged: same three user-facing categories and same error envelope shape
+- No changes to routing semantics or exception handling logic
+
+### Verification
+
+To verify the fix:
+
+```bash
+# 1. Start API server
+cd apps/api
+./run.sh
+
+# 2. Test NL mode with Wi-Fi off (simulates connection error)
+# Disable network, then:
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+# Expected: HTTP 503 with category "remote_services_unavailable" (not crash)
+
+# 3. Test with forced internal error (simulate by temporarily breaking a template)
+# Expected: HTTP 500 with category "data_retrieval_failure" (not crash)
+
+# 4. Verify API returns proper error envelope in all cases
+# All errors should return JSON with: code, message (user-facing), category
+```
+
+**Files changed:**
+
+- `apps/api/app/routes.py` - Added error taxonomy constants at module scope
+
+---
+
 ## 2026-01-12 – Fixed NL Clarification Behavior for Missing Parameters and Ambiguity
 
 Fixed natural language router to properly trigger clarification responses instead of returning hard 400 "unsupported_question" errors when parameters are missing or questions are ambiguous.

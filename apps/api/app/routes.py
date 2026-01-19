@@ -14,6 +14,18 @@ from app.config import settings
 
 router = APIRouter()
 
+# Ask error taxonomy (3 user-facing categories per requirements)
+ASK_ERROR_CATEGORY_UNANSWERABLE = "unanswerable"
+ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE = "data_retrieval_failure"
+ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE = "remote_services_unavailable"
+
+# User-facing messages per category
+ASK_USER_MESSAGES = {
+    ASK_ERROR_CATEGORY_UNANSWERABLE: "This question can't be answered. The system couldn't map your question to a supported, verifiable query. Please select one of the supported questions or rephrase your request.",
+    ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE: "Unable to retrieve data. The system encountered an internal error while answering this question. Please contact your system administrator for assistance.",
+    ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE: "Remote services unavailable. The system could not connect to required services. Please try again later or contact your system administrator."
+}
+
 
 # Configuration endpoint
 @router.get("/config/ask")
@@ -337,52 +349,70 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
     - nl: Uses LLM-based intent routing (requires ASK_NL_ENABLED=true)
 
     Returns AskResponse or AskClarificationResponse depending on routing outcome.
+
+    All exceptions are caught and mapped to one of three user-facing error categories:
+    - unanswerable: routing failures, unsupported questions
+    - data_retrieval_failure: database/SQL errors, template execution errors
+    - remote_services_unavailable: OpenAI API errors, network errors
     """
     from app import nl_router, ask_executor
 
-    # Determine mode (default to deterministic for safety)
+    # Track routing/execution state for error logging (shared mutable context)
+    context = {"template_name": None, "intent_id": None}
     mode = request.mode or "deterministic"
 
-    # Check if NL mode is requested but not enabled
-    if mode == "nl" and not settings.is_nl_enabled():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "nl_mode_disabled",
-                "message": "Natural language mode is not enabled",
-                "category": "unanswerable_question"
-            }
-        )
-
-    template_name = None
-    error_code = None
-    error_category = None
-    exception_message = None
-    stack_trace = None
-
+    # Outermost catch-all safety net (prevents uncaught errors)
     try:
+        # Check if NL mode is requested but not enabled
+        if mode == "nl" and not settings.is_nl_enabled():
+            error_code = "nl_mode_disabled"
+            error_category = ASK_ERROR_CATEGORY_UNANSWERABLE
+            exception_message = "Natural language mode is not enabled"
+
+            _log_ask_failure(
+                production_code=request.production_code,
+                question=request.question,
+                template_name=None,
+                intent_id=None,
+                error_code=error_code,
+                error_category=error_category,
+                exception_message=exception_message,
+                stack_trace=None,
+                mode=mode,
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": error_code,
+                    "message": ASK_USER_MESSAGES[error_category],
+                    "category": error_category,
+                }
+            )
+
+        # Route and execute
         if mode == "nl":
             # NL routing path
-            return _handle_nl_ask(request, db)
+            return _handle_nl_ask(request, db, context)
         else:
-            # Deterministic routing path (existing logic)
-            return _handle_deterministic_ask(request, db)
+            # Deterministic routing path
+            return _handle_deterministic_ask(request, db, context)
 
     except HTTPException:
-        # Re-raise HTTPExceptions (already logged and formatted)
+        # Re-raise HTTPExceptions (already logged and formatted by inner handlers)
         raise
-    except SQLAlchemyError as e:
-        # Database/SQL errors
-        error_code = "query_execution_error"
-        error_category = "data_retrieval_failure"
+    except (ConnectionError, TimeoutError, OSError) as e:
+        # Network/connection errors (treat OpenAI failures as opaque external dependency)
+        error_code = "remote_service_error"
+        error_category = ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE
         exception_message = str(e)
-        stack_trace = traceback.format_exc()
+        stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
 
-        # Log the failure
         _log_ask_failure(
             production_code=request.production_code,
             question=request.question,
             template_name=template_name,
+            intent_id=intent_id,
             error_code=error_code,
             error_category=error_category,
             exception_message=exception_message,
@@ -390,27 +420,53 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
             mode=mode,
         )
 
-        # Return 500 with error envelope per Appendix E
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": error_code,
+                "message": ASK_USER_MESSAGES[error_category],
+                "category": error_category,
+            }
+        )
+    except (SQLAlchemyError, ValueError, KeyError) as e:
+        # Database/SQL errors, template execution errors, parameter validation errors
+        error_code = "data_retrieval_error"
+        error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+        exception_message = str(e)
+        stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
+
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=context.get("template_name"),
+            intent_id=context.get("intent_id"),
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=stack_trace,
+            mode=mode,
+        )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "code": error_code,
-                "message": exception_message,
+                "message": ASK_USER_MESSAGES[error_category],
                 "category": error_category,
             }
         )
     except Exception as e:
-        # Other internal errors during template execution
-        error_code = "template_error"
-        error_category = "data_retrieval_failure"
+        # Catch-all for any other unexpected exceptions (including OpenAI SDK exceptions)
+        error_code = "unexpected_error"
+        error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
         exception_message = str(e)
-        stack_trace = traceback.format_exc()
+        stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
 
-        # Log the failure
         _log_ask_failure(
             production_code=request.production_code,
             question=request.question,
-            template_name=template_name,
+            template_name=context.get("template_name"),
+            intent_id=context.get("intent_id"),
             error_code=error_code,
             error_category=error_category,
             exception_message=exception_message,
@@ -418,36 +474,41 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
             mode=mode,
         )
 
-        # Return 500 with error envelope per Appendix E
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "code": error_code,
-                "message": exception_message,
+                "message": ASK_USER_MESSAGES[error_category],
                 "category": error_category,
             }
         )
 
 
-def _handle_deterministic_ask(request: schemas.AskRequest, db: Session) -> schemas.AskResponse:
-    """Handle deterministic ask using keyword routing."""
+def _handle_deterministic_ask(request: schemas.AskRequest, db: Session, context: dict) -> schemas.AskResponse:
+    """Handle deterministic ask using keyword routing.
+
+    Updates context dict with template_name when resolved.
+    """
     template_name = None
 
     try:
         # Route question to template
         template_name, params = ask_templates.route_question(request.question)
+        # Update context with resolved template name
+        context["template_name"] = template_name
     except Exception as routing_error:
         # Routing logic itself failed
         error_code = "unsupported_question"
-        error_category = "unanswerable_question"
+        error_category = ASK_ERROR_CATEGORY_UNANSWERABLE
         exception_message = f"Question routing failed: {str(routing_error)}"
-        stack_trace = traceback.format_exc()
+        stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
 
         # Log the failure
         _log_ask_failure(
             production_code=request.production_code,
             question=request.question,
             template_name=None,
+            intent_id=None,
             error_code=error_code,
             error_category=error_category,
             exception_message=exception_message,
@@ -460,7 +521,7 @@ def _handle_deterministic_ask(request: schemas.AskRequest, db: Session) -> schem
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "code": error_code,
-                "message": exception_message,
+                "message": ASK_USER_MESSAGES[error_category],
                 "category": error_category,
             }
         )
@@ -468,7 +529,7 @@ def _handle_deterministic_ask(request: schemas.AskRequest, db: Session) -> schem
     # Check if routing failed (unsupported or ambiguous)
     if not template_name or template_name not in ask_templates.TEMPLATES:
         error_code = "unsupported_question"
-        error_category = "unanswerable_question"
+        error_category = ASK_ERROR_CATEGORY_UNANSWERABLE
         exception_message = "Question could not be mapped to a supported template"
 
         # Log the failure
@@ -476,6 +537,7 @@ def _handle_deterministic_ask(request: schemas.AskRequest, db: Session) -> schem
             production_code=request.production_code,
             question=request.question,
             template_name=None,
+            intent_id=None,
             error_code=error_code,
             error_category=error_category,
             exception_message=exception_message,
@@ -488,7 +550,7 @@ def _handle_deterministic_ask(request: schemas.AskRequest, db: Session) -> schem
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "code": error_code,
-                "message": exception_message,
+                "message": ASK_USER_MESSAGES[error_category],
                 "category": error_category,
             }
         )
@@ -499,27 +561,99 @@ def _handle_deterministic_ask(request: schemas.AskRequest, db: Session) -> schem
     if "production_code" not in params:
         params["production_code"] = request.production_code
 
-    # Execute template
-    result = template_func(db, **params)
-    return result
+    # Execute template with error handling for SQL/template exceptions
+    try:
+        result = template_func(db, **params)
+        return result
+    except (SQLAlchemyError, ValueError, KeyError) as e:
+        # Database/SQL errors, template execution errors
+        error_code = "template_execution_error"
+        error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+        exception_message = str(e)
+        stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
+
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=template_name,
+            intent_id=None,
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=stack_trace,
+            mode="deterministic",
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": error_code,
+                "message": ASK_USER_MESSAGES[error_category],
+                "category": error_category,
+            }
+        )
+    except Exception as e:
+        # Unexpected template execution errors
+        error_code = "template_error"
+        error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+        exception_message = str(e)
+        stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
+
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=template_name,
+            intent_id=None,
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=stack_trace,
+            mode="deterministic",
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": error_code,
+                "message": ASK_USER_MESSAGES[error_category],
+                "category": error_category,
+            }
+        )
 
 
-def _handle_nl_ask(request: schemas.AskRequest, db: Session):
+def _handle_nl_ask(request: schemas.AskRequest, db: Session, context: dict):
     """Handle NL ask using LLM-based intent routing.
 
     Returns AskResponse or AskClarificationResponse depending on routing outcome.
+    Updates context dict with intent_id when resolved.
     """
     from app import nl_router, ask_executor
 
     # Get router
     router = nl_router.get_router()
     if not router:
+        error_code = "nl_router_unavailable"
+        error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+        exception_message = "NL router could not be initialized"
+
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=None,
+            intent_id=None,
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=None,
+            mode="nl",
+        )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "code": "nl_router_unavailable",
-                "message": "NL router could not be initialized",
-                "category": "internal_error"
+                "code": error_code,
+                "message": ASK_USER_MESSAGES[error_category],
+                "category": error_category,
             }
         )
 
@@ -531,12 +665,40 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session):
     if request.clarification_context:
         session_context.update(request.clarification_context)
 
-    # Route question
-    routing_result = router.route(
-        question=request.question,
-        session_context=session_context,
-        is_clarification=is_clarification
-    )
+    # Route question with error handling for connection/timeout errors
+    try:
+        routing_result = router.route(
+            question=request.question,
+            session_context=session_context,
+            is_clarification=is_clarification
+        )
+    except (ConnectionError, TimeoutError, OSError) as e:
+        # Remote service errors during routing
+        error_code = "routing_connection_error"
+        error_category = ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE
+        exception_message = str(e)
+        stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
+
+        _log_ask_failure(
+            production_code=request.production_code,
+            question=request.question,
+            template_name=None,
+            intent_id=context.get("intent_id"),
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
+            stack_trace=stack_trace,
+            mode="nl",
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": error_code,
+                "message": ASK_USER_MESSAGES[error_category],
+                "category": error_category,
+            }
+        )
 
     # Log NL routing attempt
     _log_nl_routing(
@@ -548,13 +710,72 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session):
 
     # Handle routing outcome
     if routing_result.status == nl_router.RoutingStatus.OK:
-        # Execute query via AskExecutor
+        # Update context with resolved intent_id
+        if routing_result.intent_id:
+            context["intent_id"] = routing_result.intent_id
+
+        # Execute query via AskExecutor with error handling for DB/template errors
         executor = ask_executor.get_executor()
         params = routing_result.params or {}
         params["production_code"] = request.production_code
 
-        result = executor.execute(db, routing_result.intent_id, params)
-        return result
+        try:
+            result = executor.execute(db, routing_result.intent_id, params)
+            return result
+        except (SQLAlchemyError, ValueError, KeyError) as e:
+            # Database/SQL errors, template execution errors
+            error_code = "execution_error"
+            error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+            exception_message = str(e)
+            stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
+
+            _log_ask_failure(
+                production_code=request.production_code,
+                question=request.question,
+                template_name=None,
+                intent_id=routing_result.intent_id,
+                error_code=error_code,
+                error_category=error_category,
+                exception_message=exception_message,
+                stack_trace=stack_trace,
+                mode="nl",
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "code": error_code,
+                    "message": ASK_USER_MESSAGES[error_category],
+                    "category": error_category,
+                }
+            )
+        except Exception as e:
+            # Unexpected execution errors
+            error_code = "execution_unexpected_error"
+            error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+            exception_message = str(e)
+            stack_trace = traceback.format_exc() if settings.app_env in ("local", "dev") else None
+
+            _log_ask_failure(
+                production_code=request.production_code,
+                question=request.question,
+                template_name=None,
+                intent_id=routing_result.intent_id,
+                error_code=error_code,
+                error_category=error_category,
+                exception_message=exception_message,
+                stack_trace=stack_trace,
+                mode="nl",
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "code": error_code,
+                    "message": ASK_USER_MESSAGES[error_category],
+                    "category": error_category,
+                }
+            )
 
     elif routing_result.status == nl_router.RoutingStatus.NEEDS_CLARIFICATION:
         # Return clarification response
@@ -579,13 +800,18 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session):
 
     else:  # ERROR
         # Map to internal error
+        error_code = routing_result.error_code or "routing_error"
+        error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
+        exception_message = routing_result.error_message or "NL routing failed"
+
         _log_ask_failure(
             production_code=request.production_code,
             question=request.question,
             template_name=None,
-            error_code=routing_result.error_code or "routing_error",
-            error_category="data_retrieval_failure",
-            exception_message=routing_result.error_message or "NL routing failed",
+            intent_id=routing_result.intent_id,
+            error_code=error_code,
+            error_category=error_category,
+            exception_message=exception_message,
             stack_trace=None,
             mode="nl",
         )
@@ -593,9 +819,9 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "code": routing_result.error_code or "routing_error",
-                "message": routing_result.error_message or "NL routing failed",
-                "category": "data_retrieval_failure"
+                "code": error_code,
+                "message": ASK_USER_MESSAGES[error_category],
+                "category": error_category,
             }
         )
 
@@ -604,13 +830,18 @@ def _log_ask_failure(
     production_code: str,
     question: str,
     template_name: Optional[str],
+    intent_id: Optional[str],
     error_code: str,
     error_category: str,
     exception_message: str,
     stack_trace: Optional[str],
     mode: str = "deterministic",
 ):
-    """Emit structured JSON log line to stdout per Appendix E.5."""
+    """Emit structured JSON log line to stdout per Appendix E.5.
+
+    All Ask failures must be logged with sufficient detail to diagnose issues.
+    Stack traces are only included in dev/local environments.
+    """
     log_entry = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "environment": settings.app_env,
@@ -619,12 +850,14 @@ def _log_ask_failure(
         "production_code": production_code,
         "question": question,
         "template": template_name,
+        "intent_id": intent_id,
         "error_code": error_code,
         "error_category": error_category,
         "exception": exception_message,
     }
 
-    if stack_trace:
+    # Stack trace only in dev/local per requirements
+    if stack_trace and settings.app_env in ("local", "dev"):
         log_entry["stack_trace"] = stack_trace
 
     # Emit as single-line JSON to stdout (Railway/local dev will capture)
