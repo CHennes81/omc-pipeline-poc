@@ -192,7 +192,7 @@ class NLRouter:
             # Call LLM with application-level timeout guard (belt + suspenders)
             # Run synchronous OpenAI call in thread with anyio timeout enforcement
             async def _call_llm_with_timeout():
-                async with anyio.fail_after(LLM_TIMEOUT_SECONDS):
+                with anyio.fail_after(LLM_TIMEOUT_SECONDS):
                     # Run synchronous OpenAI call in thread
                     return await anyio.to_thread.run_sync(
                         lambda: self.client.chat.completions.create(
@@ -203,7 +203,8 @@ class NLRouter:
                             ],
                             temperature=0.0,
                             response_format={"type": "json_object"}
-                        )
+                        ),
+                        abandon_on_cancel=True
                     )
 
             response = anyio.run(_call_llm_with_timeout)
@@ -303,19 +304,19 @@ class NLRouter:
 
             return result
 
-        except anyio.TooSlowError as e:
-            # Application-level timeout (anyio.fail_after)
+        except TimeoutError as e:
+            # Application-level timeout (anyio.fail_after) or network timeout
             return RoutingResult(
                 status=RoutingStatus.ERROR,
                 error_code="llm_timeout",
                 error_message=f"LLM request timed out after {LLM_TIMEOUT_SECONDS} seconds"
             )
-        except (TimeoutError, OSError) as e:
-            # Network timeout or connection error during LLM call
+        except OSError as e:
+            # Connection error during LLM call
             return RoutingResult(
                 status=RoutingStatus.ERROR,
                 error_code="llm_timeout",
-                error_message=f"LLM request timed out or connection failed: {str(e)}"
+                error_message=f"LLM request connection failed: {str(e)}"
             )
         except json.JSONDecodeError as e:
             return RoutingResult(

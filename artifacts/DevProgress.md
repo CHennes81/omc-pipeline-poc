@@ -921,7 +921,7 @@ Implemented 12-second application-level hard timeout on Natural Language routing
 - Timeout value: **12 seconds** (application-level hard limit via `anyio.fail_after()`)
 - Provider-agnostic timeout guard using `anyio` (works regardless of OpenAI SDK behavior)
 - Belt + suspenders: both OpenAI SDK timeout and application-level timeout
-- Timeout exceptions (`anyio.TooSlowError`) are caught and mapped to `error_code="llm_timeout"`
+- Timeout exceptions (`TimeoutError`) are caught and mapped to `error_code="llm_timeout"`
 - Timeout errors are mapped to `ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE` category
 - HTTP status: 503 (Service Unavailable) for timeouts
 - No retries, backoff, or vendor-specific exception taxonomy
@@ -952,8 +952,40 @@ curl -X POST http://127.0.0.1:8000/api/ask \
 
 **Files changed:**
 
-- `apps/api/app/nl_router.py` - Added 15-second timeout to OpenAI client, timeout exception handling
-- `apps/api/app/routes.py` - Updated error mapping for timeout errors to remote_services_unavailable
+- `apps/api/app/nl_router.py` - Added timeout and exception handling
+- `apps/api/app/routes.py` - Updated error mapping for timeouts
+
+---
+
+## 2026-01-12 – Fixed anyio Timeout Guard Implementation
+
+Fixed TypeError and AttributeError in anyio timeout guard implementation.
+
+### Problem
+
+- `TypeError: '_GeneratorContextManager' object does not support the asynchronous context manager protocol` - `anyio.fail_after()` was used with `async with` but it's a sync context manager
+- `AttributeError: module 'anyio' has no attribute 'TooSlowError'` - Non-existent exception type was being caught
+
+### Solution
+
+**Backend (1 file):**
+
+- `apps/api/app/nl_router.py`:
+  - Changed `async with anyio.fail_after(...)` to `with anyio.fail_after(...)` (sync context manager)
+  - Removed `except anyio.TooSlowError` handler (non-existent exception)
+  - Changed to catch `TimeoutError` instead (raised by `anyio.fail_after()` on timeout)
+  - Added `abandon_on_cancel=True` to `anyio.to_thread.run_sync()` to ensure worker thread is abandoned on cancellation
+
+### Implementation Notes
+
+- `anyio.fail_after()` is a sync context manager, used with `with` not `async with`
+- Timeout exceptions are caught as `TimeoutError` (standard exception raised by anyio)
+- Worker thread abandonment ensures cancellation works properly
+- All other behavior unchanged: same error_code="llm_timeout", same routing to remote_services_unavailable
+
+**Files changed:**
+
+- `apps/api/app/nl_router.py` - Fixed anyio context manager usage and exception handling
 
 ---
 
