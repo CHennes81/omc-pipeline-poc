@@ -1158,3 +1158,215 @@ The NL layer MUST map outcomes into the existing Ask error semantics:
 ---
 
 End of Appendix G.
+
+# Appendix H — Seed Data Specification (Final)
+
+## H.1 Purpose and Scope
+
+This appendix defines the authoritative specification for regenerating **demo seed data** for the OMC Ontology PoC.
+
+The intent is to produce a **realistic, narrative-rich dataset** that reflects modern episodic production practices while **fitting entirely within the existing database schema**. No schema changes are permitted.
+
+This seed data:
+
+- Replaces **all existing demo data**
+- Represents **a single episodic production**
+- Is optimized for **executive-facing demos**, not operational completeness
+
+---
+
+## H.2 Production Assumptions
+
+- **Production Type:** High-budget episodic television
+- **Production Count:** 1 (single production only)
+- **Shoot Days:** 3 consecutive shoot days
+- **Scenes:** Multiple scenes spanning all shoot days
+- **Total Shots:** 28 shots total across all days
+- **Camera System:** ARRI ALEXA Mini LF family (standardized for entire production)
+- **Audio:** Out of scope for this PoC (video-only lineage)
+
+---
+
+## H.3 Shot Identity Model
+
+### H.3.1 Shot Naming Convention (Human-Readable)
+
+Shots are identified in human-facing contexts using a conventional format:
+
+```
+<SceneNumber>_<ShotNumber><Variant><Modifier?>
+```
+
+Examples:
+
+- `011_001`
+- `011_001A`
+- `011_001B`
+- `011_003C_PU`
+
+These strings reflect **real-world script supervisor practices** and are intentionally non-normalized.
+
+### H.3.2 Canonical Shot Identity (System Model)
+
+The **authoritative identity** of a shot is defined via metadata, not string parsing.
+
+Each shot asset must include:
+
+- `base_shot_code`: e.g. `011_001`
+- `variant_code`: e.g. `A`, `B`, `C` (nullable)
+- `human_readable_code`: full string label as shown above
+
+All lettered variants (`A`, `B`, `C`, etc.) reference the same `base_shot_code`.
+
+String parsing must never be used to infer relationships.
+
+---
+
+## H.4 Lettering Up (Setup Changes)
+
+“Lettering up” is used when camera setups change for the same scripted shot.
+
+- The first setup uses the base shot code (e.g., `011_001`)
+- Subsequent setups increment the variant (`011_001A`, `011_001B`, etc.)
+- Each variant represents a **distinct camera setup**
+- All variants remain logically grouped via `base_shot_code`
+
+This practice is common and must be reflected in the seed data.
+
+---
+
+## H.5 Pickups and Partials (Out of Scope)
+
+Partial shots or pickups (e.g., `011_003C_PU`) are **acknowledged but intentionally excluded** from this seed dataset.
+
+Notes:
+
+- In real productions, pickups are often labeled inconsistently
+- They may represent partial performances or dialogue-only segments
+- Future work may model these using the same metadata approach as lettered variants
+
+For this PoC:
+
+- No pickup-specific assets are generated
+- The data model is assumed to support them in the future
+
+---
+
+## H.6 Shot Distribution and Rework Narrative
+
+### H.6.1 Distribution
+
+- 28 total shots across 3 shoot days
+- Majority progress smoothly through the pipeline
+- A small subset require rework
+
+### H.6.2 Rework Cases
+
+Exactly **4 shots** must require rework, distributed as:
+
+- 2 editorial re-cuts
+- 1 VFX revision
+- 1 creative rework (director or studio notes)
+
+Each rework must include:
+
+- Clear lineage from prior version(s)
+- A human-readable reason (stored in metadata or notes)
+- New downstream assets reflecting the revision
+
+---
+
+## H.7 Temporal Realism
+
+Timestamps must tell a believable production story.
+
+Guidelines:
+
+- Camera Originals created during shoot days
+- Camera Masters generated hours later
+- Dailies generated same day or overnight
+- Editorial outputs occur days later
+- Reworked assets occur after original deliveries
+
+No two assets should share identical timestamps unless logically required.
+
+---
+
+## H.8 Camera Metadata (ARRI ALEXA Mini LF)
+
+### H.8.1 Minimum Required Metadata (PoC)
+
+Each Camera Original and Camera Master must include at least:
+
+- camera_make: ARRI
+- camera_model: ALEXA Mini LF
+- serial_number
+- lens_model
+- focal_length_mm
+- aperture
+- iso
+- frame_rate
+- resolution
+- codec
+- color_space
+- timecode_start
+- timecode_end
+- capture_timestamp
+
+### H.8.2 Reference Metadata (Non-Mandatory)
+
+ARRI publishes a significantly larger metadata set.
+This PoC requires only the subset above.
+
+A full reference list may be appended later for completeness, but seed generation must populate **at least** the required subset.
+
+---
+
+## H.9 Lineage and DAG Constraints
+
+- Lineage must form a **Directed Acyclic Graph**
+- Downstream assets may have **multiple parents**
+- Editorial outputs conceptually derive from multiple source shots
+- This PoC models simplified, deterministic parentage only
+
+The data must remain DAG-safe under all transformations.
+
+---
+
+## H.10 Destructive Reseed Requirement
+
+Running the seed generator under this spec must:
+
+- Delete or overwrite **all prior demo data**
+- Create only the new dataset defined here
+- Leave all application logic unchanged
+- Leave all schemas unchanged
+
+If any data element does not fit the existing schema, it must be adapted via metadata — **not structural change**.
+
+---
+
+## H.11 Non-Goals
+
+This appendix explicitly does not attempt to model:
+
+- Audio assets
+- Editorial EDL/AAF ingestion
+- Pickups or partials
+- Multi-production tenancy
+- Real-time ingest systems
+
+These are intentionally deferred.
+
+---
+
+## H.12 Summary
+
+This seed dataset is designed to:
+
+- Be realistic enough to resonate with studio technologists
+- Be simple enough to explain clearly to executives
+- Demonstrate the power of deterministic lineage capture
+- Align cleanly with MovieLabs 2030 OMC principles
+
+It is a narrative dataset, not a production system.
