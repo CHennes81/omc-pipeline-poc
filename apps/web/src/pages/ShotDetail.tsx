@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ShotDetail, Version, Event, LineageNode } from '../api/client';
+import { useInspector } from '../context/InspectorContext';
 import './PageStyles.css';
 
 export function ShotDetailPage() {
   const { shotCode } = useParams<{ shotCode: string }>();
+  const { setPayload, setOpen } = useInspector();
   const [shot, setShot] = useState<ShotDetail | null>(null);
-  const [versions] = useState<Version[]>([]);
+  const [versions, setVersions] = useState<Version[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [lineage, setLineage] = useState<LineageNode[]>([]);
   const [loading, setLoading] = useState(false);
@@ -18,15 +20,16 @@ export function ShotDetailPage() {
     if (!shotCode) return;
     try {
       setLoading(true);
-      const [shotData, eventsData, lineageData] = await Promise.all([
+      const [shotData, eventsData, lineageData, versionsData] = await Promise.all([
         api.getShotDetail(shotCode, productionCode),
         api.getShotEvents(shotCode, productionCode),
         api.getShotLineage(shotCode, productionCode),
+        api.getShotVersions(shotCode, productionCode),
       ]);
       setShot(shotData.shot);
       setEvents(eventsData.events);
       setLineage(lineageData.chain);
-      // TODO: Load versions separately - need asset_id
+      setVersions(versionsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load shot data');
     } finally {
@@ -39,6 +42,11 @@ export function ShotDetailPage() {
       loadShotData();
     }
   }, [shotCode, loadShotData]);
+
+  useEffect(() => {
+    if (shot) setPayload(shot);
+    return () => setPayload(null);
+  }, [shot, setPayload]);
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">Error: {error}</div>;
@@ -55,7 +63,23 @@ export function ShotDetailPage() {
 
   return (
     <div className="page-container">
-      <h1 className="page-title">Shot: {shot.shot_code}</h1>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '24px',
+          flexWrap: 'wrap',
+          gap: '12px',
+        }}
+      >
+        <h1 className="page-title" style={{ margin: 0 }}>
+          Shot: {shot.shot_code}
+        </h1>
+        <button type="button" className="page-button" onClick={() => setOpen(true)}>
+          Inspect
+        </button>
+      </div>
       <div className="page-section">
         <p>
           <strong>Scene:</strong> {shot.scene || '-'}
@@ -83,7 +107,14 @@ export function ShotDetailPage() {
                 </thead>
                 <tbody>
                   {vers.map((v) => (
-                    <tr key={v.id}>
+                    <tr
+                      key={v.id}
+                      onClick={() => {
+                        setPayload(v);
+                        setOpen(true);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <td className="monospace">{v.id.substring(0, 8)}...</td>
                       <td>{v.storage_uri}</td>
                       <td>{v.codec || '-'}</td>

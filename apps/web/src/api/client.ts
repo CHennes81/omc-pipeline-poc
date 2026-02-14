@@ -28,6 +28,8 @@ export interface Version {
   fps: number | null;
   timecode_in: string | null;
   timecode_out: string | null;
+  omc_json?: Record<string, unknown> | null;
+  creative_context?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -191,6 +193,11 @@ export const api = {
     fetchJson<{ events: Event[] }>(
       `/api/shots/${shotCode}/events?production_code=${productionCode}`,
     ),
+
+  getShotVersions: (shotCode: string, productionCode: string) =>
+    fetchJson<Version[]>(`/api/shots/${shotCode}/versions?production_code=${productionCode}`),
+
+  getAssetVersions: (assetId: string) => fetchJson<Version[]>(`/api/assets/${assetId}/versions`),
 
   // Packages
   getPackages: (productionCode: string) =>

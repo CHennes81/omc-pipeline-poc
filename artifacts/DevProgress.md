@@ -9,6 +9,49 @@ Entries are factual and chronological.
 
 ---
 
+## Phase A – Metadata Inspector v1 (Read-only)
+
+**Goal:** Read-only inspector for version JSON metadata; OMC compliance deferred.
+
+**Checklist:**
+
+- [x] API: return Version.omc_json + Version.creative_context in GET /assets/{asset_id}/versions
+- [x] API schema: VersionResponse includes omc_json + creative_context (optional)
+- [x] UI: add global Inspector Drawer (right-side slide-over)
+- [x] UI: add header toggle affordance on detail pages (Shot Detail, Packages)
+- [x] UI: implement Overview tab (lightweight, curated; hides null/empty; nested objects shown as [object])
+- [x] UI: implement Raw tab (pretty-printed JSON dump of full payload)
+- [x] Optional: Copy JSON button on Raw (copies exactly displayed string)
+- [x] Smoke test: confirm metadata fields appear in API response + Inspector Raw view
+
+**Implementation summary (2026-02-13):**
+
+**Files changed:**
+
+- `apps/api/app/schemas.py` – Added `omc_json` and `creative_context` (Optional[Dict[str, Any]]) to `VersionResponse`
+- `apps/api/app/routes.py` – Added `omc_json` and `creative_context` to `get_asset_versions` return dict; added `get_shot_versions` endpoint (GET /shots/{shot_code}/versions)
+- `apps/web/src/api/client.ts` – Added `omc_json` and `creative_context` to Version interface; added `getShotVersions` and `getAssetVersions`
+- `apps/web/src/context/InspectorContext.tsx` – **New.** Inspector state (open, payload)
+- `apps/web/src/components/InspectorDrawer.tsx` – **New.** Drawer with Overview + Raw tabs, Copy button
+- `apps/web/src/components/InspectorDrawer.css` – **New.** Drawer styles
+- `apps/web/src/App.tsx` – Wrapped app in `InspectorProvider`, rendered `InspectorDrawer`
+- `apps/web/src/pages/ShotDetail.tsx` – Load versions via `getShotVersions`; Inspect button; click version row to inspect
+- `apps/web/src/pages/Packages.tsx` – Inspect button; inspect selected package with members
+
+**How to test manually:**
+
+1. Start API and web app; load seed data (POST /api/import/seed with mode: "reset_and_seed")
+2. Navigate to Shot Detail (e.g. /shot/011_001). Click a version row – Inspector opens with that Version. Raw tab shows `omc_json` and `creative_context` when present.
+3. Or: GET /api/shots/011_001/versions?production_code=EXFTR – response includes `omc_json` and `creative_context` fields per Version.
+
+**Limitations / deferrals:**
+
+- Inspector not wired on Dashboard, All Shots, or Ask pages
+- Payload clears when navigating away; open state (drawer visible) persists
+- OMC compliance validation deferred to later phase
+
+---
+
 ## 2025-12-19 – Control Docs Realignment
 
 - Completely rewrote DevPlan.md for Production Lineage Concierge POC

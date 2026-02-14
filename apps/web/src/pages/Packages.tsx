@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import type { Package } from '../api/client';
+import { useInspector } from '../context/InspectorContext';
 import './PageStyles.css';
 
 export function PackagesPage() {
+  const { setPayload, setOpen } = useInspector();
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
+  const [packageDetail, setPackageDetail] = useState<{
+    package: Package;
+    members: Array<{ version_id: string; version_type: string; storage_uri: string }>;
+  } | null>(null);
   const [packageMembers, setPackageMembers] = useState<
     Array<{ version_id: string; version_type: string; storage_uri: string }>
   >([]);
@@ -39,6 +45,7 @@ export function PackagesPage() {
     try {
       setLoading(true);
       const data = await api.getPackageDetail(packageId);
+      setPackageDetail(data);
       setPackageMembers(data.members);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load package details');
@@ -47,9 +54,35 @@ export function PackagesPage() {
     }
   };
 
+  useEffect(() => {
+    if (packageDetail) setPayload(packageDetail);
+    return () => setPayload(null);
+  }, [packageDetail, setPayload]);
+
   return (
     <div className="page-container">
-      <h1 className="page-title">Packages</h1>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '24px',
+          flexWrap: 'wrap',
+          gap: '12px',
+        }}
+      >
+        <h1 className="page-title" style={{ margin: 0 }}>
+          Packages
+        </h1>
+        <button
+          type="button"
+          className="page-button"
+          onClick={() => setOpen(true)}
+          disabled={!selectedPackage}
+        >
+          Inspect
+        </button>
+      </div>
 
       {error && <div className="page-error">Error: {error}</div>}
 
