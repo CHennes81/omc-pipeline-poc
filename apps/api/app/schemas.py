@@ -56,6 +56,8 @@ class VersionResponse(BaseModel):
     fps: Optional[float]
     timecode_in: Optional[str]
     timecode_out: Optional[str]
+    omc_json: Optional[Dict[str, Any]] = None
+    creative_context: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     class Config:

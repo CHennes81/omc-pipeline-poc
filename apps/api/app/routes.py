@@ -195,6 +195,46 @@ def get_shot_events(shot_code: str, production_code: str, db: Session = Depends(
     }
 
 
+@router.get("/shots/{shot_code}/versions", response_model=List[schemas.VersionResponse])
+def get_shot_versions(shot_code: str, production_code: str, db: Session = Depends(get_db)):
+    """Get all versions for all assets of a shot."""
+    shot = db.query(models.Shot).join(models.Production).filter(
+        models.Shot.shot_code == shot_code,
+        models.Production.code == production_code
+    ).first()
+
+    if not shot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "shot_not_found", "message": f"Shot {shot_code} not found"}
+        )
+
+    versions = (
+        db.query(models.Version)
+        .join(models.Asset)
+        .filter(models.Asset.shot_id == shot.id)
+        .order_by(models.Version.created_at)
+        .all()
+    )
+
+    return [
+        {
+            "id": v.id,
+            "version_type": v.version_type,
+            "storage_uri": v.storage_uri,
+            "codec": v.codec,
+            "container": v.container,
+            "fps": float(v.fps) if v.fps else None,
+            "timecode_in": v.timecode_in,
+            "timecode_out": v.timecode_out,
+            "omc_json": v.omc_json,
+            "creative_context": v.creative_context,
+            "created_at": v.created_at
+        }
+        for v in versions
+    ]
+
+
 # Assets
 @router.get("/assets/{asset_id}/versions", response_model=List[schemas.VersionResponse])
 def get_asset_versions(asset_id: UUID, db: Session = Depends(get_db)):
@@ -213,6 +253,8 @@ def get_asset_versions(asset_id: UUID, db: Session = Depends(get_db)):
             "fps": float(v.fps) if v.fps else None,
             "timecode_in": v.timecode_in,
             "timecode_out": v.timecode_out,
+            "omc_json": v.omc_json,
+            "creative_context": v.creative_context,
             "created_at": v.created_at
         }
         for v in versions
