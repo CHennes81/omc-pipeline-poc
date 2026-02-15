@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import type { Package } from '../api/client';
-import { useInspector } from '../context/InspectorContext';
+import { useInspector } from '../context/inspector-context';
 import './PageStyles.css';
 
 export function PackagesPage() {

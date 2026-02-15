@@ -1,14 +1,5 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
-
-interface InspectorContextValue {
-  isOpen: boolean;
-  setOpen: (open: boolean) => void;
-  toggleOpen: () => void;
-  payload: unknown | null;
-  setPayload: (obj: unknown | null) => void;
-}
-
-const InspectorContext = createContext<InspectorContextValue | null>(null);
+import { useState, useCallback, type ReactNode } from 'react';
+import { InspectorContext } from './inspector-context';
 
 export function InspectorProvider({ children }: { children: ReactNode }) {
   const [isOpen, setOpen] = useState(false);
@@ -16,7 +7,7 @@ export function InspectorProvider({ children }: { children: ReactNode }) {
 
   const toggleOpen = useCallback(() => setOpen((o) => !o), []);
 
-  const value: InspectorContextValue = {
+  const value = {
     isOpen,
     setOpen,
     toggleOpen,
@@ -25,10 +16,4 @@ export function InspectorProvider({ children }: { children: ReactNode }) {
   };
 
   return <InspectorContext.Provider value={value}>{children}</InspectorContext.Provider>;
-}
-
-export function useInspector() {
-  const ctx = useContext(InspectorContext);
-  if (!ctx) throw new Error('useInspector must be used within InspectorProvider');
-  return ctx;
 }

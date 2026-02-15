@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ShotDetail, Version, Event, LineageNode } from '../api/client';
-import { useInspector } from '../context/InspectorContext';
+import { useInspector } from '../context/inspector-context';
 import './PageStyles.css';
 
 export function ShotDetailPage() {

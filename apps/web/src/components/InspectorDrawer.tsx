@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useInspector } from '../context/InspectorContext';
+import { useInspector } from '../context/inspector-context';
 import './InspectorDrawer.css';
 
 export function InspectorDrawer() {
