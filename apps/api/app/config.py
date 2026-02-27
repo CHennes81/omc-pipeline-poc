@@ -1,4 +1,5 @@
 """Configuration management for the API."""
+import os
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -6,9 +7,9 @@ from typing import Optional
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    database_url: str = "postgresql://localhost/omc_pipeline_poc"
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
-    app_env: str = "local"
+    database_url: str = os.getenv("DATABASE_URL", "postgresql://localhost/omc_pipeline_poc")
+    cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+    app_env: str = os.getenv("APP_ENV", "local")
 
     # Natural Language Ask Configuration (Appendix G)
     openai_api_key: Optional[str] = None
