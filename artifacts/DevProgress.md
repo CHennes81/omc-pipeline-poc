@@ -80,7 +80,7 @@ Implemented complete Phase 1 skeleton for Production Lineage Concierge POC.
 - `db/views.sql` - View `v_shot_stage` for deterministic stage computation based on event types
 - `db/seed.sql` - Seed dataset with:
   - 1 production (EXFTR)
-  - 5 shots (011_021, 011_022, 012_010, 012_011, 013_015)
+  - 5 shots (011_002, 011_022, 012_010, 012_011, 013_015)
   - Complete lineage chains: CAMERA_ORIGINAL → HDE_MASTER → DAILIES_PROXY → (some) EDIT_EXPORT
   - Blocked cases: 2 shots with dailies but no edit export
   - 1 TURNOVER package (3 shots), 1 ARCHIVE package (2 shots)
@@ -451,7 +451,7 @@ psycopg2.errors.SyntaxError: syntax error at or near "UNION" (LINE 11: UNION ALL
 
 ```json
 {
-  "shot_code": "011_021",
+  "shot_code": "011_002",
   "chain": [
     { "version_id": "...", "version_type": "EDIT_EXPORT", "derived_from": "..." },
     { "version_id": "...", "version_type": "DAILIES_PROXY", "derived_from": "..." },
@@ -468,7 +468,7 @@ psycopg2.errors.SyntaxError: syntax error at or near "UNION" (LINE 11: UNION ALL
 curl -X POST http://127.0.0.1:8000/api/import/seed -H "Content-Type: application/json" -d '{"mode":"reset_and_seed"}'
 
 # 2. Test lineage endpoint
-curl "http://127.0.0.1:8000/api/shots/011_021/lineage?production_code=EXFTR"
+curl "http://127.0.0.1:8000/api/shots/011_002/lineage?production_code=EXFTR"
 # Should return HTTP 200 with valid JSON chain
 ```
 
@@ -861,7 +861,7 @@ cd apps/api
 # (Simulate by temporarily breaking a template function)
 curl -X POST http://127.0.0.1:8000/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021"}'
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_002"}'
 # Expected: Error log should include template_name="latest_camera_original"
 
 # 3. Test NL mode with connection error (simulate by setting invalid OpenAI API key)
@@ -870,7 +870,7 @@ export ASK_NL_ENABLED=true
 # Restart API, then:
 curl -X POST http://127.0.0.1:8000/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_002", "mode": "nl"}'
 # Expected: Error log should include category="remote_services_unavailable"
 
 # 4. Test NL mode with execution error (simulate DB error)
@@ -923,7 +923,7 @@ cd apps/api
 # Disable network, then:
 curl -X POST http://127.0.0.1:8000/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_002", "mode": "nl"}'
 # Expected: HTTP 503 with category "remote_services_unavailable" (not crash)
 
 # 3. Test with forced internal error (simulate by temporarily breaking a template)
@@ -983,7 +983,7 @@ cd apps/api
 # Disable network connectivity, then:
 curl -X POST http://127.0.0.1:8000/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_021", "mode": "nl"}'
+  -d '{"production_code": "EXFTR", "question": "latest camera original for shot 011_002", "mode": "nl"}'
 # Expected: Request completes within ~12 seconds (not hanging indefinitely)
 # Expected: HTTP 503 with category "remote_services_unavailable"
 # Expected: Error log includes error_code="llm_timeout"

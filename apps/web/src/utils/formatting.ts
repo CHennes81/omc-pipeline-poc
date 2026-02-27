@@ -64,7 +64,7 @@ export function isUUID(value: unknown): boolean {
  */
 export function isShotCode(value: unknown): boolean {
   if (typeof value !== 'string') return false;
-  // Shot codes typically look like "011_021" or similar patterns
+  // Shot codes typically look like "011_002" or similar patterns
   return /^\d{3}_\d{3}$/.test(value);
 }
 

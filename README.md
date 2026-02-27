@@ -169,15 +169,15 @@ Query the system using deterministic templates:
 curl http://localhost:8000/api/shots?production_code=EXFTR
 
 # Get shot detail
-curl http://localhost:8000/api/shots/011_021?production_code=EXFTR
+curl http://localhost:8000/api/shots/011_002?production_code=EXFTR
 
 # Get lineage
-curl http://localhost:8000/api/shots/011_021/lineage?production_code=EXFTR
+curl http://localhost:8000/api/shots/011_002/lineage?production_code=EXFTR
 
 # Ask a question
 curl -X POST http://localhost:8000/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"production_code": "EXFTR", "question": "What is the latest camera original for shot 011_021?"}'
+  -d '{"production_code": "EXFTR", "question": "What is the latest camera original for shot 011_002?"}'
 ```
 
 ## Project Structure
@@ -213,7 +213,7 @@ omc-pipeline-poc/
 The seed includes:
 
 - 1 production (EXFTR)
-- 5 shots (011_021, 011_022, 012_010, 012_011, 013_015)
+- 5 shots (011_002, 011_022, 012_010, 012_011, 013_015)
 - Complete lineage chains: CAMERA_ORIGINAL → HDE_MASTER → DAILIES_PROXY → (some) EDIT_EXPORT
 - Blocked cases: shots with dailies but no edit export
 - Packages: 1 TURNOVER package, 1 ARCHIVE package

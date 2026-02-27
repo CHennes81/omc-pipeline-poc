@@ -9,7 +9,7 @@
         "shot_code": {
           "type": "string",
           "pattern": "^\\d{3}_\\d{3}$",
-          "description": "Shot code in format XXX_YYY (e.g., 011_021)"
+          "description": "Shot code in format XXX_YYY (e.g., 011_002)"
         }
       },
       "optional_params": {},
@@ -27,7 +27,7 @@
         "shot_code": {
           "type": "string",
           "pattern": "^\\d{3}_\\d{3}$",
-          "description": "Shot code in format XXX_YYY (e.g., 011_021)"
+          "description": "Shot code in format XXX_YYY (e.g., 011_002)"
         }
       },
       "optional_params": {},
@@ -87,7 +87,7 @@
         "shot_code": {
           "type": "string",
           "pattern": "^\\d{3}_\\d{3}$",
-          "description": "Shot code in format XXX_YYY (e.g., 011_021)"
+          "description": "Shot code in format XXX_YYY (e.g., 011_002)"
         }
       },
       "optional_params": {},
@@ -105,7 +105,7 @@
         "shot_code": {
           "type": "string",
           "pattern": "^\\d{3}_\\d{3}$",
-          "description": "Shot code in format XXX_YYY (e.g., 011_021)"
+          "description": "Shot code in format XXX_YYY (e.g., 011_002)"
         }
       },
       "optional_params": {},

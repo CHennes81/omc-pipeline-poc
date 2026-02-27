@@ -395,7 +395,7 @@ Loads the demo dataset (idempotent preferred).
 **Response (summary):**
 
 ```json
-{ "shots": [{ "shot_code": "011_021", "scene": "011", "stage": "DAILIES" }] }
+{ "shots": [{ "shot_code": "011_002", "scene": "011", "stage": "DAILIES" }] }
 ```
 
 #### `GET /shots/{shot_code}?production_code=EXFTR`
@@ -404,7 +404,7 @@ Loads the demo dataset (idempotent preferred).
 
 ```json
 {
-  "shot": { "shot_code": "011_021", "scene": "011", "description": "..." }
+  "shot": { "shot_code": "011_002", "scene": "011", "description": "..." }
 }
 ```
 
@@ -414,7 +414,7 @@ Loads the demo dataset (idempotent preferred).
 
 ```json
 {
-  "shot_code": "011_021",
+  "shot_code": "011_002",
   "chain": [{ "version_type": "EDIT_EXPORT", "version_id": "...", "derived_from": "..." }]
 }
 ```
@@ -440,7 +440,7 @@ Loads the demo dataset (idempotent preferred).
 ```json
 {
   "production_code": "EXFTR",
-  "question": "For shot 011_021, show lineage camera→edit export"
+  "question": "For shot 011_002, show lineage camera→edit export"
 }
 ```
 
@@ -449,7 +449,7 @@ Loads the demo dataset (idempotent preferred).
 ```json
 {
   "template":"lineage_chain_to_latest_edit_export",
-  "params": {"shot_code":"011_021"},
+  "params": {"shot_code":"011_002"},
   "answer": "...",
   "evidence": {
     "versions":[...],
@@ -689,7 +689,7 @@ Example (illustrative):
   "environment": "local",
   "endpoint": "/api/ask",
   "production_code": "EXFTR",
-  "question": "Show lineage chain to latest edit export for shot 011_021",
+  "question": "Show lineage chain to latest edit export for shot 011_002",
   "template": "lineage_chain_to_latest_edit_export",
   "error_code": "template_error",
   "error_category": "data_retrieval_failure",

@@ -390,7 +390,7 @@ IMPORTANT: For missing_params or ambiguity cases, user_message MUST be null (not
 The server will generate clarification messages deterministically from your response.
 
 PARAMETER EXTRACTION EXAMPLES:
-- "shot 011_021" → {{"shot_code": "011_021"}}
+- "shot 011_002" → {{"shot_code": "011_002"}}
 - "production EXFTR" → {{"production_code": "EXFTR"}}
 - UUID strings → {{"package_id": "uuid-value"}}
 
@@ -871,7 +871,7 @@ Return JSON now:"""
                         return RoutingResult(
                             status=RoutingStatus.UNANSWERABLE,
                             error_code="missing_required_params_after_confirmation",
-                            error_message="Please re-ask your question and include the shot code (e.g., 011_021)."
+                            error_message="Please re-ask your question and include the shot code (e.g., 011_002)."
                         )
                     else:
                         return RoutingResult(

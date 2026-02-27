@@ -18,11 +18,11 @@ import './PageStyles.css';
 const TEMPLATE_QUESTIONS = [
   {
     template: 'latest_camera_original',
-    question: 'What is the latest camera original for shot 011_021?',
+    question: 'What is the latest camera original for shot 011_002?',
   },
   {
     template: 'lineage_chain_to_latest_edit_export',
-    question: 'Show lineage chain to latest edit export for shot 011_021',
+    question: 'Show lineage chain to latest edit export for shot 011_002',
   },
   {
     template: 'shots_with_dailies_no_edit_export',
@@ -32,10 +32,10 @@ const TEMPLATE_QUESTIONS = [
     template: 'shots_ready_for_turnover_and_missing',
     question: 'Which shots are ready for turnover but missing?',
   },
-  { template: 'source_relink_keys', question: 'What are the relink keys for shot 011_021?' },
+  { template: 'source_relink_keys', question: 'What are the relink keys for shot 011_002?' },
   {
     template: 'latest_versions_by_type',
-    question: 'Show latest versions by type for shot 011_021',
+    question: 'Show latest versions by type for shot 011_002',
   },
   { template: 'archive_status', question: 'What is the archive status for production EXFTR?' },
 ];
