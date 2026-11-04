@@ -27,7 +27,9 @@
 /* Information rows: a label column and a value column so the values line up down the card. */
 .version-audit-rows {
   display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
+  /* Label column = the widest label ("Captured By:" / "Timecode In:", about 6.4em at 13px bold) so the values
+     start at the same x on every card; column-gap is the space between the longest label and its value. */
+  grid-template-columns: 6.4em minmax(0, 1fr);
   column-gap: 12px;
   row-gap: 6px;
   align-items: baseline;
@@ -67,6 +69,7 @@
   border-top: 1px solid var(--dashboard-border);
   width: 100%;
   font-size: 13px;
+  overflow: hidden; /* the hidden measurer is wider than the card and must never widen the layout */
 }
 
 .version-audit-locator-row {

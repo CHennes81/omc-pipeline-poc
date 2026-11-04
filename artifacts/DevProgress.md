@@ -1355,3 +1355,12 @@ When users asked questions like "What is the latest camera original?" (without s
 - **Data:** new `apps/api/app/audit_cards.py` enriches every version in Ask evidence with format, camera, lens, source (root camera original via lineage), reason, created-by (event actor and tool) and delivered-in (packages); new extractors in `omc_fields.py`. `apps/api/tests/test_audit_card_fields.py` rewritten for the per-type contract (70 API tests pass).
 - **Seed:** Edit Export tool varies by scene (Avid Media Composer: 011, 013, 015, 017; Adobe Premiere Pro: 012, 016; DaVinci Resolve: 014). Avid exports are **DNxHR HQX**, the others **ProRes 422** (17 / 6 / 5 exports). Codec is derived from the tool in `scripts/rewrite_seed_omc_json.py`. All 112 payloads re-validated with the official OMC Validator (no warnings).
 - **Deploy note:** the seed changed, so prod needs `scripts/upgrade_db.py` again (see memory / the tunnel procedure) after the new API code deploys.
+
+---
+
+## Ask cards: colons, aligned values, (n/a), realistic timecodes (2026-11-03)
+
+- **Cards:** every label has a colon; the label column is fixed at the widest label (about 6.4em) plus a 12 px gap so values align across all card types; legitimately absent values show `(n/a)` instead of a hyphen; the locator section clips the hidden measurer so it can never widen the layout. `normalizeTimecode` now keeps SMPTE frames (it previously dropped them, which would have hidden non-zero frames).
+- **Seed timecodes:** camera originals get time-of-day timecode from the CAPTURE event time plus arbitrary frames (never `01:00:00:00`, Out always on a non-zero frame); master and dailies share it; edit exports are trimmed sub-ranges with their own In/Out. Deterministic in `scripts/rewrite_seed_omc_json.py`. All 112 payloads re-validated with the official OMC Validator (no warnings). `tests/test_omc_fields.py` covers the timecode rules (71 API tests pass).
+- **Note:** a layout glitch seen in the browser (last card shifted left, cards too wide) was caused by inline styles left on the page by a manual width test, not by the code.
+- **Deploy:** prod needs the new API code and a `scripts/upgrade_db.py` run (the seed changed).

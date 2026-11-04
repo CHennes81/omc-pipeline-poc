@@ -19,9 +19,12 @@ const LOCATOR_MIN_GAP = 24;
 /** Must equal `column-gap` on .version-audit-locator-row in the CSS (the hidden measurer mirrors the row). */
 const LOCATOR_ROW_GAP = 8;
 
+/** Shown when a value is legitimately absent (e.g. no Reason on a first export, nothing delivered yet). */
+const NA = '(n/a)';
+
 /** "CAMERA_ORIGINAL" -> "Camera Original" */
 function titleCase(value: unknown): string {
-  if (!value) return '—';
+  if (!value) return NA;
   return String(value)
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
@@ -37,14 +40,14 @@ function pick(version: Version, ...keys: string[]): string | null {
   return null;
 }
 
-/** Join the parts that exist; "—" when none do. */
+/** Join the parts that exist; "(n/a)" when none do. */
 function joinParts(parts: Array<string | null | undefined>, separator = ' · '): string {
   const present = parts.filter((p): p is string => !!p && p.trim() !== '');
-  return present.length > 0 ? present.join(separator) : '—';
+  return present.length > 0 ? present.join(separator) : NA;
 }
 
 function timecode(value: string | null): string {
-  return value ? normalizeTimecode(value) : '—';
+  return value ? normalizeTimecode(value) : NA;
 }
 
 function formatLine(v: Version): string {
@@ -103,7 +106,7 @@ function createdByLine(v: Version, includeTool: boolean): string {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <span className="version-audit-label">{label}</span>
+      <span className="version-audit-label">{label}:</span>
       <span className="version-audit-row-value">{children}</span>
     </>
   );
@@ -139,8 +142,8 @@ function LocatorRow({ uri, versionId }: { uri: string | null; versionId: string 
     return () => observer.disconnect();
   }, [uri, versionId]);
 
-  const uriText = uri ?? '—';
-  const idText = versionId ?? '—';
+  const uriText = uri ?? NA;
+  const idText = versionId ?? NA;
 
   return (
     <div className="version-audit-locator-section">
@@ -177,7 +180,7 @@ function LocatorRow({ uri, versionId }: { uri: string | null; versionId: string 
  *   CAMERA_ORIGINAL:           Camera, Format, Lens, Reel + Timecode, Captured By
  *   CAMERA_MASTER, DAILIES_PROXY (derived media): Format, Source, Timecode, Created By
  *   EDIT_EXPORT:               Format, Timecode, Reason, Delivered in, Created By
- * A hyphen means "this record has no value"; fields a type cannot carry are not shown.
+ * "(n/a)" means "this record has no value"; fields a type cannot carry are not shown.
  */
 export function VersionAuditCard({ version }: VersionAuditCardProps) {
   const versionType = pick(version, 'version_type', 'Version Type', 'Version_type');
@@ -199,7 +202,7 @@ export function VersionAuditCard({ version }: VersionAuditCardProps) {
         <Row label="Format">{formatLine(version)}</Row>
         <Row label="Lens">{lensLine(version)}</Row>
         <Row label="Reel">
-          <span>{pick(version, 'reel', 'Reel') ?? '—'}</span>
+          <span>{pick(version, 'reel', 'Reel') ?? NA}</span>
           <InlinePair label="Timecode In" value={tcIn} />
           <InlinePair label="Timecode Out" value={tcOut} />
         </Row>
@@ -214,7 +217,7 @@ export function VersionAuditCard({ version }: VersionAuditCardProps) {
           <span>{tcIn}</span>
           <InlinePair label="Timecode Out" value={tcOut} />
         </Row>
-        <Row label="Reason">{pick(version, 'reason') ?? '—'}</Row>
+        <Row label="Reason">{pick(version, 'reason') ?? NA}</Row>
         <Row label="Delivered in">{deliveredInLine(version)}</Row>
         <Row label="Created By">{createdByLine(version, true)}</Row>
       </>
@@ -243,7 +246,7 @@ export function VersionAuditCard({ version }: VersionAuditCardProps) {
         </span>
         <span className="version-audit-field" style={{ marginLeft: 'auto' }}>
           <span className="version-audit-label">Created:</span>
-          <span className="version-audit-value">{createdAt ? formatDateTime(createdAt) : '—'}</span>
+          <span className="version-audit-value">{createdAt ? formatDateTime(createdAt) : NA}</span>
         </span>
       </div>
 

@@ -69,11 +69,10 @@ export function isShotCode(value: unknown): boolean {
 }
 
 /**
- * Normalize timecode to HH:MM:SS.SSS format
- * Handles formats like:
- * - 01:00:10:00 (SMPTE with frames)
- * - 01:00:10.000 (already correct)
- * - 01:00:10 (missing milliseconds)
+ * Normalize timecode for display.
+ * - SMPTE HH:MM:SS:FF (e.g. 07:55:21:09) is kept as is: the frame count is part of the timecode
+ * - HH:MM:SS.SSS is kept as is
+ * - HH:MM:SS (missing milliseconds) becomes HH:MM:SS.000
  */
 export function normalizeTimecode(timecode: string | null | undefined): string {
   if (!timecode) return '-';
@@ -84,12 +83,9 @@ export function normalizeTimecode(timecode: string | null | undefined): string {
     return str;
   }
 
-  // Handle SMPTE format HH:MM:SS:FF (frames)
-  const smpteMatch = str.match(/^(\d{2}):(\d{2}):(\d{2}):(\d{2})$/);
-  if (smpteMatch) {
-    const [, hours, minutes, seconds] = smpteMatch;
-    // Set to .000 since we don't know the frame rate to convert frames to milliseconds
-    return `${hours}:${minutes}:${seconds}.000`;
+  // SMPTE HH:MM:SS:FF: keep the frames (converting to milliseconds would need the frame rate and loses the frame)
+  if (/^\d{2}:\d{2}:\d{2}:\d{2}$/.test(str)) {
+    return str;
   }
 
   // Handle HH:MM:SS (missing milliseconds)
