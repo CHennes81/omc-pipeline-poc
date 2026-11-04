@@ -1317,3 +1317,11 @@ When users asked questions like "What is the latest camera original?" (without s
 **Decisions recorded (no code):** dropping duplicated columns (including `assets.reel_or_roll / camera_serial / clip_name`) remains on hold. Full timestamps are valid in `provenance.createdOn` (typed `dateTime`); the defect is only in `instanceInfo.createdOn` / `lastUpdateOn`.
 
 **Verification:** web typecheck and lint clean; live database stage counts unchanged; Dashboard and Inspector checked in the browser.
+
+---
+
+## instanceInfo.createdOn restored as date-only (2026-11-03)
+
+- `instanceInfo.createdOn` is back on all 112 `omc_json` payloads as a plain date (the UTC date of the same instant as `provenance.createdOn`). A date is the only form that validates there (OMC schema defect: `oneOf(date, dateTime)` with an unanchored date pattern), so the data now shows the constraint. `provenance.createdOn` and all other timestamps are unchanged.
+- `scripts/rewrite_seed_omc_json.py` – emits both fields. `apps/api/tests/test_seed_lineage_consistency.py` – new test that the date equals the date of `provenance.createdOn`.
+- **Verification:** 56 API tests pass; all 112 payloads pass the official OMC Validator (no warnings); local database reseeded.

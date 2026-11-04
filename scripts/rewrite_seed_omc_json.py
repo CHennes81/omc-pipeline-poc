@@ -110,6 +110,13 @@ def iso(ts):
     return ts.replace(" ", "T").replace("+00", "Z")
 
 
+def date_only(ts):
+    # '2026-01-15 08:00:00+00' -> '2026-01-15': the UTC date of the same instant as provenance.createdOn.
+    # `instanceInfo.createdOn` can ONLY hold a plain date and still validate (see note on iso()); it is kept
+    # deliberately so the data shows the constraint, alongside the full timestamp in provenance.createdOn.
+    return ts.split(" ")[0]
+
+
 def ident(asset_id, version_id):
     return [{"identifierScope": SCOPE, "identifierValue": f"asset/{asset_id}/version/{version_id}"}]
 
@@ -220,6 +227,7 @@ def build(v, ctx):
         "identifier": ident(v["asset_id"], v["id"]),
         "name": name,
         "description": title[1],
+        "instanceInfo": {"createdOn": date_only(v["created_at"])},
         "provenance": {"createdOn": iso(v["created_at"])},
     }
 

@@ -116,3 +116,15 @@ def test_payload_matches_sql_columns_phase_a():
 def test_seed_has_no_json_colon_digit_pattern():
     """SQLAlchemy text() reads `:24` in the SQL text as a bind parameter; seed JSON must not contain `\":<digit>`."""
     assert not re.search(r'":[0-9]', SEED.read_text())
+
+
+def test_instanceinfo_date_matches_provenance_timestamp():
+    """instanceInfo.createdOn can only hold a plain date (OMC schema quirk); it must be the date of provenance.createdOn."""
+    versions, _ = _load()
+    bad = []
+    for v in versions:
+        p = _payload(v)
+        d, ts = p["instanceInfo"]["createdOn"], p["provenance"]["createdOn"]
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) or not ts.startswith(d + "T"):
+            bad.append((v["id"], d, ts))
+    assert not bad, bad[:5]
