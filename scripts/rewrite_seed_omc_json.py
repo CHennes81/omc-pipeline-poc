@@ -14,10 +14,13 @@ Usage:
     python3 scripts/rewrite_seed_omc_json.py --write
 """
 import argparse
+import hashlib
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 SEED = Path(__file__).resolve().parent.parent / "db" / "seed.sql"
 SCHEMA_VERSION = "https://movielabs.com/omc/json/schema/v2.8"
@@ -132,6 +135,54 @@ def hhmmss_ff_duration(tc_in, tc_out):
 
 MEDIA_TYPE = {"mxf": "application/mxf", "mov": "video/quicktime", "mp4": "video/mp4"}
 
+# ---------------------------------------------------------------- timecode model
+# On set the camera runs time-of-day timecode jam-synced to the production clock, so a clip's Timecode In is its
+# record-start wall-clock time plus an arbitrary frame, and Timecode Out is In plus the take length (also any frame).
+# The camera master and dailies proxy are transcodes of the same essence and carry the same timecode range. An edit
+# export is the part of the take used in the cut, so it is a sub-range with its own In and Out (a rework differs from
+# the first export). Everything is a deterministic function of the shot and the CAPTURE event time (idempotent).
+SHOOT_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def _h(*parts):
+    return int(hashlib.sha256("|".join(parts).encode()).hexdigest(), 16)
+
+
+def tc_to_frames(tc):
+    h, m, sec, f = (int(x) for x in tc.split(":"))
+    return ((h * 3600 + m * 60 + sec) * FPS) + f
+
+
+def frames_to_tc(n):
+    n %= 24 * 3600 * FPS
+    sec, f = divmod(n, FPS)
+    return f"{sec // 3600:02d}:{(sec % 3600) // 60:02d}:{sec % 60:02d}:{f:02d}"
+
+
+def camera_range(shot, capture_ts):
+    """(In, Out) in frames for the camera original of this shot."""
+    dt = datetime.fromisoformat(capture_ts.replace(" ", "T").replace("+00", "+00:00")).astimezone(SHOOT_TZ)
+    start = (dt.hour * 3600 + dt.minute * 60 + dt.second) * FPS + _h(shot, "in") % FPS
+    length = (12 + _h(shot, "len") % 37) * FPS + 1 + _h(shot, "lenf") % (FPS - 1)  # 12-48 s plus 1-23 frames
+    end = start + length
+    if end % FPS == 0:  # Timecode Out always ends on a non-zero frame
+        end += 1
+    return start, end
+
+
+def timecodes(v, vt, asset_id, is_rework, ctx):
+    """(tc_in, tc_out) SMPTE strings for this version."""
+    cam = ctx["camera_by_asset"][asset_id]
+    shot = ctx["shots"][ctx["assets"][asset_id]["shot_id"]]
+    cin, cout = camera_range(shot, ctx["events"][cam["id"]]["created_at"])
+    if vt == "EDIT_EXPORT":
+        tag = "v2" if is_rework else "v1"
+        cin += (1 + _h(shot, tag, "a") % 4) * FPS + _h(shot, tag, "af") % FPS      # trimmed in: +1 to 4 s plus frames
+        cout -= (1 + _h(shot, tag, "b") % 3) * FPS + _h(shot, tag, "bf") % FPS    # trimmed out: -1 to 3 s plus frames
+        if cout % FPS == 0:
+            cout += 1
+    return frames_to_tc(cin), frames_to_tc(cout)
+
 # Edit Export codec follows the editing tool (events.tool of the EDIT_EXPORT_CREATED event): an Avid Media Composer
 # export is DNxHR (DNxHD tops out at 1920x1080, these exports are UHD); other editors export ProRes 422. A mix like
 # this is plausible on a real show where different cutting rooms use different systems. Convention, not a standard.
@@ -177,6 +228,7 @@ def build(v, ctx):
     is_rework = bool(v.get("creative_context")) and vt == "EDIT_EXPORT" and fname.endswith("_v2.mov")
     ev = ctx["events"].get(v["id"], {})
     mi = media_inputs(v, asset)
+    mi["tc_in"], mi["tc_out"] = timecodes(v, vt, v["asset_id"], is_rework, ctx)
     if vt == "EDIT_EXPORT":
         mi["codec"] = EDIT_CODEC_BY_TOOL.get(ev.get("tool"), EDIT_CODEC_DEFAULT)
 
@@ -306,7 +358,9 @@ def main():
             events[r["version_id"]] = r
     vrows = rows_as_dicts(tables, "versions")
     versions = {r["id"]: r for _, r, _, _ in vrows}
-    ctx = {"assets": assets, "shots": shots, "events": events, "versions": versions}
+    camera_by_asset = {r["asset_id"]: r for _, r, _, _ in vrows if r["version_type"] == "CAMERA_ORIGINAL"}
+    ctx = {"assets": assets, "shots": shots, "events": events, "versions": versions,
+           "camera_by_asset": camera_by_asset}
 
     built = []
     for ln, r, cols, toks in vrows:
