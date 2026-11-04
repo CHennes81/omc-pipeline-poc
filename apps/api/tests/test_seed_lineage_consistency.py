@@ -94,23 +94,40 @@ def test_payload_identifiers_match_row_ids():
     assert not bad, bad[:5]
 
 
-def test_payload_matches_sql_columns_phase_a():
-    """Until the duplicated columns are dropped, the JSON must agree with them (codec, file name, frame rate)."""
+def test_payload_is_self_consistent():
+    """Phase B: the JSON is the only home for media attributes. Its parts must agree with each other and with the row."""
     versions, _ = _load()
     bad = []
     for v in versions:
-        sc = _payload(v)["AssetSC"]
-        sp = sc["structuralProperties"]
-        custom = sc["customData"][0]["value"]
-        if sp["codec"] != v["codec"]:
-            bad.append((v["id"], "codec"))
-        if sp["fileDetails"]["filePath"] != v["storage_uri"]:
-            bad.append((v["id"], "storage_uri"))
-        if custom["container"] != v["container"]:
-            bad.append((v["id"], "container"))
-        if float(custom["frameRate"]) != float(v["fps"]):
-            bad.append((v["id"], "fps"))
+        p = _payload(v)
+        sp = p["AssetSC"]["structuralProperties"]
+        custom = p["AssetSC"]["customData"][0]["value"]
+        fname = v["storage_uri"].rsplit("/", 1)[-1]
+        if sp["fileDetails"]["filePath"] != v["storage_uri"] or sp["fileDetails"]["fileName"] != fname:
+            bad.append((v["id"], "file path/name vs storage_uri"))
+        if not sp["codec"] or not custom["container"]:
+            bad.append((v["id"], "codec/container missing"))
+        if float(custom["frameRate"]) != 24.0:
+            bad.append((v["id"], "frameRate"))
+        cam = p["assetFC"]["functionalProperties"].get("cameraMetadata")
+        if v["version_type"] == "CAMERA_ORIGINAL":
+            if not (cam and cam["reelName"] and cam["cameraSerialNumber"] and p["assetFC"]["functionalProperties"].get("clipName")):
+                bad.append((v["id"], "camera original missing reel/serial/clipName"))
+            if cam["captureRate"] != custom["frameRate"]:
+                bad.append((v["id"], "captureRate vs frameRate"))
+        elif cam is not None or "clipName" in p["assetFC"]["functionalProperties"] or "clipName" in custom:
+            bad.append((v["id"], "camera-only attribute on a non-camera stage"))
     assert not bad, bad[:5]
+
+
+def test_seed_no_longer_has_dropped_columns():
+    """The duplicated relational columns are gone from the seed (and so from schema.sql / the ORM)."""
+    versions, _ = _load()
+    dropped = {"codec", "container", "fps", "timecode_in", "timecode_out", "bitrate"}
+    assert not (dropped & set(versions[0]))
+    _, tables = _seed.parse_seed(SEED.read_text())
+    assets = [r for _, r, _, _ in _seed.rows_as_dicts(tables, "assets")]
+    assert not ({"clip_name", "reel_or_roll", "camera_serial"} & set(assets[0]))
 
 
 def test_seed_has_no_json_colon_digit_pattern():

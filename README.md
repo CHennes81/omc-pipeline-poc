@@ -210,6 +210,7 @@ omc-pipeline-poc/
 ├── db/
 │   ├── schema.sql        # Database schema
 │   ├── views.sql         # Database views
+│   ├── migrations/       # SQL to upgrade an existing database (001: Phase B column drop)
 │   └── seed.sql          # Seed data (source of truth)
 ├── scripts/              # Seed maintenance (rewrite_seed_timeline.py, rewrite_seed_omc_json.py)
 ├── Documentation/        # OMC design notes + vendored MovieLabs OMC-JSON spec
@@ -230,7 +231,7 @@ The seed includes:
 - Packages: 1 TURNOVER package, 1 ARCHIVE package
 - Events: full event timeline per shot, modelling a continuous camera-to-cloud flow (about 18-33 minutes from take to dailies)
 
-`db/seed.sql` is the source of truth; `scripts/generate_seed.py` is stale and unused. To change timestamps or OMC payloads, run `scripts/rewrite_seed_timeline.py` then `scripts/rewrite_seed_omc_json.py --write`, reload the seed, and re-validate the payloads with the official MovieLabs OMC Validator (https://omc-validator.mc.movielabs.com/). Details: `Documentation/OMC-Asset-Metadata-Matrix.md`.
+Codec, container, frame rate, timecode, clip name, reel and camera serial are stored only in each version's `omc_json` (see `apps/api/app/omc_fields.py`). An existing database created before Phase B needs `db/migrations/001_drop_duplicated_media_columns.sql` and a reseed. `db/seed.sql` is the source of truth; `scripts/generate_seed.py` is stale and unused. To change timestamps or OMC payloads, run `scripts/rewrite_seed_timeline.py` then `scripts/rewrite_seed_omc_json.py --write`, reload the seed, and re-validate the payloads with the official MovieLabs OMC Validator (https://omc-validator.mc.movielabs.com/). Details: `Documentation/OMC-Asset-Metadata-Matrix.md`.
 
 ## Development Notes
 

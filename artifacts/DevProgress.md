@@ -1325,3 +1325,16 @@ When users asked questions like "What is the latest camera original?" (without s
 - `instanceInfo.createdOn` is back on all 112 `omc_json` payloads as a plain date (the UTC date of the same instant as `provenance.createdOn`). A date is the only form that validates there (OMC schema defect: `oneOf(date, dateTime)` with an unanchored date pattern), so the data now shows the constraint. `provenance.createdOn` and all other timestamps are unchanged.
 - `scripts/rewrite_seed_omc_json.py` – emits both fields. `apps/api/tests/test_seed_lineage_consistency.py` – new test that the date equals the date of `provenance.createdOn`.
 - **Verification:** 56 API tests pass; all 112 payloads pass the official OMC Validator (no warnings); local database reseeded.
+
+---
+
+## Phase B: duplicated relational columns dropped (2026-11-03)
+
+- Dropped `versions.codec / container / fps / timecode_in / timecode_out / bitrate` and `assets.clip_name / reel_or_roll / camera_serial` from `db/schema.sql`, the ORM, and `db/seed.sql`. The OMC-JSON payload is now the only home for these values.
+- `apps/api/app/omc_fields.py` – new: Python extractors and SQL expressions for each attribute. `models.Version` exposes `codec / container / fps / timecode_in / timecode_out` as read-only properties so REST responses are unchanged; `ask_templates.py` selects the same keys (aliases) from the JSON, so Ask answers and evidence are unchanged.
+- `clipName` added to the camera-original payloads at `assetFC.functionalProperties.clipName`, the convention in MovieLabs' own HSM examples (the OMC-JSON schema defines no clip-name property in v2.0, v2.6 or v2.8). Initially placed in `AssetSC.customData`, then moved; both layouts passed the official OMC Validator for all 112 payloads with no warnings. A control with an invented key in `functionalProperties` also passes: the validator does not check unknown keys there.
+- `db/migrations/001_drop_duplicated_media_columns.sql` – new, for databases created from the earlier schema. `scripts/rewrite_seed_omc_json.py` now reads values back from the payload when the columns are absent (idempotent; verified byte-identical).
+- Tests: `tests/test_omc_fields.py` (new), `test_seed_lineage_consistency.py` (column-equality test replaced by payload self-consistency and "columns are gone" checks). 62 API tests pass.
+- **Verification:** snapshot of every GET route and Ask template (378 entries) before vs after: no differences other than the added `clipName` field and random event row ids. Web needed no code changes.
+- **Fixed (pre-existing bug, found during the baseline snapshot):** every `package_members` Ask failed with HTTP 500 `template_error`. Two stacked causes: (1) both Ask routes always pass `production_code` but `package_members(db, package_id)` did not accept it (`TypeError`); (2) behind that, `:package_id::uuid` is not parsed as a bind parameter by SQLAlchemy `text()` and Postgres rejected it. Now `package_members(db, package_id, production_code)` with `CAST(:package_id AS uuid)`, scoped to the production. New `tests/test_ask_templates_sql.py` (fails without the fix). Verified live: ARCHIVE 20 members, TURNOVER 12, equal to `/api/packages/{id}/members`.
+- **Not touched:** the deployed (Railway) database; it needs the migration and a reseed.

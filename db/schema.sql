@@ -31,9 +31,6 @@ CREATE TABLE IF NOT EXISTS assets (
     shot_id UUID NOT NULL REFERENCES shots(id) ON DELETE CASCADE,
     production_id UUID NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
     asset_type VARCHAR(50) NOT NULL,
-    clip_name VARCHAR(255),
-    reel_or_roll VARCHAR(50),
-    camera_serial VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -45,13 +42,7 @@ CREATE TABLE IF NOT EXISTS versions (
     version_type VARCHAR(50) NOT NULL, -- CAMERA_ORIGINAL, CAMERA_MASTER, DAILIES_PROXY, EDIT_EXPORT, etc.
     derived_from_version_id UUID REFERENCES versions(id),
     storage_uri TEXT NOT NULL,
-    codec VARCHAR(50),
-    container VARCHAR(50),
-    bitrate INTEGER,
-    fps NUMERIC(10, 2),
-    timecode_in VARCHAR(20),
-    timecode_out VARCHAR(20),
-    omc_json JSONB,
+    omc_json JSONB, -- OMC-JSON Asset; codec, container, frame rate, timecode, clip/reel/serial live ONLY here (see apps/api/app/omc_fields.py)
     creative_context JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
