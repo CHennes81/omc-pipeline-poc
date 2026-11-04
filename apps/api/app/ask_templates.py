@@ -4,16 +4,25 @@ from sqlalchemy import text
 from typing import Dict, Any, List
 from uuid import UUID
 
+from app.audit_cards import enrich_version_cards
 from app.omc_fields import (
     SQL_CODEC, SQL_FPS, SQL_TIMECODE_IN, SQL_TIMECODE_OUT, SQL_CLIP_NAME, SQL_REEL,
 )
+
+# Every template that returns `evidence.versions` selects at least these columns (alias the table as `v`). They are
+# exactly what the Ask page's VersionAuditCard displays, so a card can never show "—" for something the data holds.
+# `reel` is camera metadata: it is NULL for every stage after CAMERA_ORIGINAL by design (see omc_fields.py).
+# Keep `id` first: the card takes the first UUID-valued key as the Version ID.
+VERSION_CARD_COLUMNS = f"""v.id, v.version_type, v.storage_uri, v.created_at,
+               {SQL_CODEC} AS codec, {SQL_FPS} AS fps,
+               {SQL_TIMECODE_IN} AS timecode_in, {SQL_TIMECODE_OUT} AS timecode_out,
+               {SQL_REEL} AS reel"""
 
 
 def latest_camera_original(db: Session, shot_code: str, production_code: str) -> Dict[str, Any]:
     """Template: latest_camera_original(shot_code)"""
     query = text(f"""
-        SELECT v.id, v.version_type, v.storage_uri, {SQL_CODEC} AS codec, {SQL_FPS} AS fps,
-               {SQL_TIMECODE_IN} AS timecode_in, {SQL_TIMECODE_OUT} AS timecode_out, v.created_at
+        SELECT {VERSION_CARD_COLUMNS}
         FROM versions v
         JOIN assets a ON v.asset_id = a.id
         JOIN shots s ON a.shot_id = s.id
@@ -36,7 +45,7 @@ def latest_camera_original(db: Session, shot_code: str, production_code: str) ->
             "explanation": f"Query for latest CAMERA_ORIGINAL version of shot {shot_code}"
         }
 
-    version = dict(row._mapping)
+    version = enrich_version_cards(db, [dict(row._mapping)])[0]
     return {
         "template": "latest_camera_original",
         "params": {"shot_code": shot_code},
@@ -50,7 +59,8 @@ def lineage_chain_to_latest_edit_export(db: Session, shot_code: str, production_
     """Template: lineage_chain_to_latest_edit_export(shot_code)"""
     # Get all versions for this shot, ordered by lineage
     # Returns chain ordered root-first (depth DESC): CAMERA_ORIGINAL → ... → EDIT_EXPORT
-    query = text("""
+    # The recursion only walks ids; the final SELECT joins back to versions for the card columns.
+    query = text(f"""
         WITH RECURSIVE lineage_chain AS (
             -- Anchor: Start with latest EDIT_EXPORT (wrapped in subquery to allow ORDER BY/LIMIT)
             SELECT v.id, v.version_type, v.derived_from_version_id, v.storage_uri, v.created_at, 0 as depth
@@ -75,14 +85,15 @@ def lineage_chain_to_latest_edit_export(db: Session, shot_code: str, production_
             JOIN lineage_chain lc ON v.id = lc.derived_from_version_id
             WHERE lc.depth < 20
         )
-        SELECT id, version_type, derived_from_version_id, storage_uri, created_at
-        FROM lineage_chain
-        ORDER BY depth DESC
+        SELECT {VERSION_CARD_COLUMNS}, lc.derived_from_version_id
+        FROM lineage_chain lc
+        JOIN versions v ON v.id = lc.id
+        ORDER BY lc.depth DESC
     """)
     result = db.execute(query, {"shot_code": shot_code, "production_code": production_code})
     rows = result.fetchall()
 
-    chain = [dict(row._mapping) for row in rows]
+    chain = enrich_version_cards(db, [dict(row._mapping) for row in rows])
 
     if not chain:
         return {
@@ -171,7 +182,7 @@ def package_members(db: Session, package_id: str, production_code: str) -> Dict[
     `production_code` is injected by every Ask route; the package must belong to that production.
     """
     query = text(f"""
-        SELECT v.id, v.version_type, v.storage_uri, {SQL_CODEC} AS codec, {SQL_FPS} AS fps, v.created_at
+        SELECT {VERSION_CARD_COLUMNS}
         FROM versions v
         JOIN package_members pm ON v.id = pm.version_id
         JOIN packages pk ON pk.id = pm.package_id
@@ -183,7 +194,7 @@ def package_members(db: Session, package_id: str, production_code: str) -> Dict[
     result = db.execute(query, {"package_id": package_id, "production_code": production_code})
     rows = result.fetchall()
 
-    versions = [dict(row._mapping) for row in rows]
+    versions = enrich_version_cards(db, [dict(row._mapping) for row in rows])
 
     return {
         "template": "package_members",
@@ -197,8 +208,7 @@ def package_members(db: Session, package_id: str, production_code: str) -> Dict[
 def source_relink_keys(db: Session, shot_code: str, production_code: str) -> Dict[str, Any]:
     """Template: source_relink_keys(shot_code)"""
     query = text(f"""
-        SELECT v.id, v.version_type, {SQL_FPS} AS fps, {SQL_TIMECODE_IN} AS timecode_in,
-               {SQL_TIMECODE_OUT} AS timecode_out, {SQL_CLIP_NAME} AS clip_name, {SQL_REEL} AS reel_or_roll
+        SELECT {VERSION_CARD_COLUMNS}, {SQL_CLIP_NAME} AS clip_name
         FROM versions v
         JOIN assets a ON v.asset_id = a.id
         JOIN shots s ON a.shot_id = s.id
@@ -221,7 +231,7 @@ def source_relink_keys(db: Session, shot_code: str, production_code: str) -> Dic
             "explanation": f"Query for relink keys (fps, timecode) for camera original of shot {shot_code}"
         }
 
-    version = dict(row._mapping)
+    version = enrich_version_cards(db, [dict(row._mapping)])[0]
     return {
         "template": "source_relink_keys",
         "params": {"shot_code": shot_code},
@@ -235,7 +245,7 @@ def latest_versions_by_type(db: Session, shot_code: str, production_code: str) -
     """Template: latest_versions_by_type(shot_code)"""
     query = text(f"""
         SELECT DISTINCT ON (v.version_type)
-            v.version_type, v.id, v.storage_uri, {SQL_CODEC} AS codec, {SQL_FPS} AS fps, v.created_at
+            {VERSION_CARD_COLUMNS}
         FROM versions v
         JOIN assets a ON v.asset_id = a.id
         JOIN shots s ON a.shot_id = s.id
@@ -247,7 +257,7 @@ def latest_versions_by_type(db: Session, shot_code: str, production_code: str) -
     result = db.execute(query, {"shot_code": shot_code, "production_code": production_code})
     rows = result.fetchall()
 
-    versions = [dict(row._mapping) for row in rows]
+    versions = enrich_version_cards(db, [dict(row._mapping) for row in rows])
 
     return {
         "template": "latest_versions_by_type",

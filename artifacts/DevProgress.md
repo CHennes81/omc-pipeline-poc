@@ -1338,3 +1338,29 @@ When users asked questions like "What is the latest camera original?" (without s
 - **Verification:** snapshot of every GET route and Ask template (378 entries) before vs after: no differences other than the added `clipName` field and random event row ids. Web needed no code changes.
 - **Fixed (pre-existing bug, found during the baseline snapshot):** every `package_members` Ask failed with HTTP 500 `template_error`. Two stacked causes: (1) both Ask routes always pass `production_code` but `package_members(db, package_id)` did not accept it (`TypeError`); (2) behind that, `:package_id::uuid` is not parsed as a bind parameter by SQLAlchemy `text()` and Postgres rejected it. Now `package_members(db, package_id, production_code)` with `CAST(:package_id AS uuid)`, scoped to the production. New `tests/test_ask_templates_sql.py` (fails without the fix). Verified live: ARCHIVE 20 members, TURNOVER 12, equal to `/api/packages/{id}/members`.
 - **Not touched:** the deployed (Railway) database; it needs the migration and a reseed.
+
+---
+
+## Ask page audit cards: all fields populated; card design audit (2026-11-03)
+
+- **Part 1 (done):** every Ask template that returns `evidence.versions` now selects one shared column set, `VERSION_CARD_COLUMNS` in `apps/api/app/ask_templates.py` (version type, created, locator, codec, fps, timecode in/out, reel), all read from `omc_json`. Before: the lineage-chain answer showed dashes for codec, fps, timecodes and reel; the relink answer for codec, created, locator and reel; reel was blank everywhere (the card reads `reel`, the relink template returned `reel_or_roll`). Reel is camera metadata, so it is set for camera originals only; other stages correctly show "—". The relink evidence key `reel_or_roll` is now `reel`.
+- `apps/api/tests/test_audit_card_fields.py` (new, needs the seeded DB, skips otherwise): every template x every shot / package must populate every field; fails on the previous templates. 67 API tests pass. Checked in the UI (lineage chain and relink answers).
+- **Part 2 (recommendations only):** `Documentation/Ask-Audit-Card-Design.md` audits the single card layout against what each version type carries and recommends per-type cards (capture, derived media, editorial) and per-answer layouts (full card, lineage chain with deltas, compact package rows, stat card). Findings logged there include: `normalizeTimecode` silently drops SMPTE frames; "latest versions by type" is in alphabetical, not lifecycle, order; reworks are indistinguishable from originals on the card. Nothing from Part 2 is implemented.
+
+---
+
+## Ask audit cards redesigned per version type; Edit Export tool and codec mix (2026-11-03)
+
+- **Cards:** `apps/web/src/components/VersionAuditCard.tsx` / `.css` rewritten with three layouts following one pattern (Version Type on top, most significant info next, who made it last, separator, Locator with the Version ID right-justified on the same line when it fits with 24 px of space, otherwise the URI drops under the label). Camera Original: Camera, Format, Lens, Reel + Timecode, Captured By. Derived media (Camera Master, Dailies Proxy): Format, Source, Timecode, Created By. Edit Export: Format, Timecode, Reason, Delivered in, Created By. Layout and data sources: `Documentation/Ask-Audit-Card-Design.md` (rewritten as a short readable spec).
+- **Data:** new `apps/api/app/audit_cards.py` enriches every version in Ask evidence with format, camera, lens, source (root camera original via lineage), reason, created-by (event actor and tool) and delivered-in (packages); new extractors in `omc_fields.py`. `apps/api/tests/test_audit_card_fields.py` rewritten for the per-type contract (70 API tests pass).
+- **Seed:** Edit Export tool varies by scene (Avid Media Composer: 011, 013, 015, 017; Adobe Premiere Pro: 012, 016; DaVinci Resolve: 014). Avid exports are **DNxHR HQX**, the others **ProRes 422** (17 / 6 / 5 exports). Codec is derived from the tool in `scripts/rewrite_seed_omc_json.py`. All 112 payloads re-validated with the official OMC Validator (no warnings).
+- **Deploy note:** the seed changed, so prod needs `scripts/upgrade_db.py` again (see memory / the tunnel procedure) after the new API code deploys.
+
+---
+
+## Ask cards: colons, aligned values, (n/a), realistic timecodes (2026-11-03)
+
+- **Cards:** every label has a colon; the label column is fixed at the widest label (about 6.4em) plus a 12 px gap so values align across all card types; legitimately absent values show `(n/a)` instead of a hyphen; the locator section clips the hidden measurer so it can never widen the layout. `normalizeTimecode` now keeps SMPTE frames (it previously dropped them, which would have hidden non-zero frames).
+- **Seed timecodes:** camera originals get time-of-day timecode from the CAPTURE event time plus arbitrary frames (never `01:00:00:00`, Out always on a non-zero frame); master and dailies share it; edit exports are trimmed sub-ranges with their own In/Out. Deterministic in `scripts/rewrite_seed_omc_json.py`. All 112 payloads re-validated with the official OMC Validator (no warnings). `tests/test_omc_fields.py` covers the timecode rules (71 API tests pass).
+- **Note:** a layout glitch seen in the browser (last card shifted left, cards too wide) was caused by inline styles left on the page by a manual width test, not by the code.
+- **Deploy:** prod needs the new API code and a `scripts/upgrade_db.py` run (the seed changed).
