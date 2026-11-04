@@ -132,6 +132,12 @@ def hhmmss_ff_duration(tc_in, tc_out):
 
 MEDIA_TYPE = {"mxf": "application/mxf", "mov": "video/quicktime", "mp4": "video/mp4"}
 
+# Edit Export codec follows the editing tool (events.tool of the EDIT_EXPORT_CREATED event): an Avid Media Composer
+# export is DNxHR (DNxHD tops out at 1920x1080, these exports are UHD); other editors export ProRes 422. A mix like
+# this is plausible on a real show where different cutting rooms use different systems. Convention, not a standard.
+EDIT_CODEC_BY_TOOL = {"Avid Media Composer": "DNxHR HQX"}
+EDIT_CODEC_DEFAULT = "ProRes 422"
+
 
 def media_inputs(v, asset):
     """Values the payload needs that used to live in relational columns.
@@ -171,6 +177,8 @@ def build(v, ctx):
     is_rework = bool(v.get("creative_context")) and vt == "EDIT_EXPORT" and fname.endswith("_v2.mov")
     ev = ctx["events"].get(v["id"], {})
     mi = media_inputs(v, asset)
+    if vt == "EDIT_EXPORT":
+        mi["codec"] = EDIT_CODEC_BY_TOOL.get(ev.get("tool"), EDIT_CODEC_DEFAULT)
 
     title = {
         "CAMERA_ORIGINAL": ("Camera Raw", "Camera-original raw capture (ARRIRAW) as recorded by the camera (POC example)."),
