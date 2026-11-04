@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rebuild versions.omc_json inside db/seed.sql as OMC-JSON v2.8 payloads.
 
-db/seed.sql (not scripts/generate_seed.py, which is stale) is the source of truth for seed data.
+db/seed.sql is the source of truth for seed data (the old generator script was removed).
 This script reads the seed rows (assets, shots, events, versions), builds one OMC-JSON `Asset`
 per version row, and either emits them as a JSON array for the official OMC validator
 (--emit PATH) or rewrites the omc_json column in place (--write). It touches nothing else in the file.

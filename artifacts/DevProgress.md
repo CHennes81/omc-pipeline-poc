@@ -1364,3 +1364,11 @@ When users asked questions like "What is the latest camera original?" (without s
 - **Seed timecodes:** camera originals get time-of-day timecode from the CAPTURE event time plus arbitrary frames (never `01:00:00:00`, Out always on a non-zero frame); master and dailies share it; edit exports are trimmed sub-ranges with their own In/Out. Deterministic in `scripts/rewrite_seed_omc_json.py`. All 112 payloads re-validated with the official OMC Validator (no warnings). `tests/test_omc_fields.py` covers the timecode rules (71 API tests pass).
 - **Note:** a layout glitch seen in the browser (last card shifted left, cards too wide) was caused by inline styles left on the page by a manual width test, not by the code.
 - **Deploy:** prod needs the new API code and a `scripts/upgrade_db.py` run (the seed changed).
+
+---
+
+## Repo housekeeping (2026-11-04)
+
+- Removed `scripts/generate_seed.py` (stale; recoverable from history, e.g. `git show c1e7460:scripts/generate_seed.py`). `apps/api/app/seed.py` is the seed loader behind `/api/import/seed` and is unchanged.
+- README: new section on updating the hosted database (seed endpoint for data-only changes, `scripts/upgrade_db.py` for schema or view changes).
+- Deleted the untracked, gitignored `--version/` folder in the repo root (Husky hook scripts written by a stray `husky --version` call).

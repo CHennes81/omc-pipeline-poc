@@ -231,7 +231,29 @@ The seed includes:
 - Packages: 1 TURNOVER package, 1 ARCHIVE package
 - Events: full event timeline per shot, modelling a continuous camera-to-cloud flow (about 18-33 minutes from take to dailies)
 
-Codec, container, frame rate, timecode, clip name, reel and camera serial are stored only in each version's `omc_json` (see `apps/api/app/omc_fields.py`). An existing database created before Phase B needs `db/migrations/001_drop_duplicated_media_columns.sql` and a reseed. `db/seed.sql` is the source of truth; `scripts/generate_seed.py` is stale and unused. To change timestamps or OMC payloads, run `scripts/rewrite_seed_timeline.py` then `scripts/rewrite_seed_omc_json.py --write`, reload the seed, and re-validate the payloads with the official MovieLabs OMC Validator (https://omc-validator.mc.movielabs.com/). Details: `Documentation/OMC-Asset-Metadata-Matrix.md`.
+Codec, container, frame rate, timecode, clip name, reel and camera serial are stored only in each version's `omc_json` (see `apps/api/app/omc_fields.py`). An existing database created before Phase B needs `db/migrations/001_drop_duplicated_media_columns.sql` and a reseed. `db/seed.sql` is the source of truth (an old generator script was removed; it is in git history). To change timestamps or OMC payloads, run `scripts/rewrite_seed_timeline.py` then `scripts/rewrite_seed_omc_json.py --write`, reload the seed, and re-validate the payloads with the official MovieLabs OMC Validator (https://omc-validator.mc.movielabs.com/). Details: `Documentation/OMC-Asset-Metadata-Matrix.md`.
+
+## Updating the hosted database (Railway Postgres)
+
+The API never changes the schema, and the hosted data is read-only demo data, so an update is a full reload. The web app (Cloudflare Pages) and the API (Railway) both deploy automatically from `main`.
+
+- **Data only** (`db/seed.sql` or the payload scripts changed): after the API has deployed, call the seed endpoint. Any call truncates every table and reloads the seed baked into the deployed image. The endpoint has no authentication, which is acceptable for this demo only.
+
+  ```bash
+  curl -X POST https://<api-host>/api/import/seed -H 'Content-Type: application/json' -d '{"mode":"reset_and_seed"}'
+  ```
+
+- **Schema or view change:** use `scripts/upgrade_db.py`. It applies `db/migrations/*.sql`, `db/views.sql` and the seed in one transaction, runs the integrity checks, and rolls back on any failure. It never prints credentials. Run it from the repo root with the API venv, reaching the database through a Railway tunnel (`railway connect Postgres --tunnel-only`) or a public TCP proxy:
+
+  ```bash
+  railway run --service Postgres -- apps/api/.venv/bin/python scripts/upgrade_db.py \
+    --pg-env --host 127.0.0.1 --port <tunnel-port> --allow-local            # inspect (read-only)
+  railway run --service Postgres -- apps/api/.venv/bin/python scripts/upgrade_db.py \
+    --pg-env --host 127.0.0.1 --port <tunnel-port> --allow-local \
+    --apply --expect-host 127.0.0.1 --expect-port <tunnel-port>             # apply
+  ```
+
+- **Verify afterwards:** compare the GET endpoints with a local run and ask a few questions in the app (see `Documentation/Ask-Audit-Card-Design.md` for what the cards should show).
 
 ## Development Notes
 

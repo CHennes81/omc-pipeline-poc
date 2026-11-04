@@ -72,7 +72,7 @@ Production in US Pacific (Jan = UTC-8), stored as UTC; the app shows browser-loc
 
 ## 7. How the seed is maintained
 
-- **`db/seed.sql` is the source of truth.** `scripts/generate_seed.py` is **stale** (32 shots vs the seed's 28; JSON only on raw assets) and is not used. Bringing it back in sync is a later item.
+- **`db/seed.sql` is the source of truth.** The old generator `scripts/generate_seed.py` had diverged from it (32 shots vs the seed's 28; JSON only on raw assets) and was removed on 2026-11-04; it remains in git history (`git show c1e7460:scripts/generate_seed.py`).
 - `scripts/rewrite_seed_timeline.py` rewrites all timestamps and the automated-step tool names (run first, `--check` to verify only).
 - `scripts/rewrite_seed_omc_json.py` rebuilds `versions.omc_json` from the seed rows (`--emit PATH` writes a validator-ready array without touching the seed; `--write` updates `db/seed.sql`). Both scripts are idempotent.
 - Reload with `POST /api/import/seed {"mode":"reset_and_seed"}`.
