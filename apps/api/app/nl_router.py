@@ -16,12 +16,28 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
-from openai import OpenAI
 from app.config import settings
+from app.llm import (
+    LLMError,
+    LLMMessage,
+    LLMProvider,
+    LLMRequest,
+    LLMResponseError,
+    create_provider,
+)
 import anyio
 
 # Hard timeout for LLM calls (application-level guard)
 LLM_TIMEOUT_SECONDS = 12.0
+
+# Output budget for the router's JSON reply (small: an intent id, params, a confidence).
+# Headroom also covers any reasoning tokens a model spends before answering.
+LLM_MAX_OUTPUT_TOKENS = 2048
+
+ROUTER_SYSTEM_PROMPT = (
+    "You are an intent router. You must respond ONLY with valid JSON matching the required "
+    "schema. Never include explanations, apologies, or any text outside the JSON."
+)
 
 logger = logging.getLogger(__name__)
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -107,11 +123,11 @@ def _trace(trace_id: str, stage: str, payload: Dict[str, Any]) -> None:
 class NLRouter:
     """Routes natural language questions to deterministic intents using LLM."""
 
-    def __init__(self, registry: IntentRegistry, openai_client: OpenAI):
-        """Initialize router with intent registry and OpenAI client."""
+    def __init__(self, registry: IntentRegistry, llm: LLMProvider):
+        """Initialize router with the intent registry and a provider-neutral LLM."""
         self.registry = registry
-        self.client = openai_client
-        self.model = "gpt-4o-mini"
+        self.llm = llm
+        self.model = llm.model
 
     def route(
         self,
@@ -180,9 +196,9 @@ class NLRouter:
             prompt_preview += "...<truncated>"
 
         _trace(trace_id, "nl_prompt_built", {
+            "provider": self.llm.name,
             "model": self.model,
-            "temperature": 0.0,
-            "max_tokens": None,
+            "max_tokens": LLM_MAX_OUTPUT_TOKENS,
             "prompt_preview": prompt_preview,
             "prompt_len_chars": len(prompt),
             "prompt_hash": prompt_hash
@@ -190,27 +206,26 @@ class NLRouter:
 
         try:
             # Call LLM with application-level timeout guard (belt + suspenders)
-            # Run synchronous OpenAI call in thread with anyio timeout enforcement
+            # Run the synchronous LLM call in a worker thread with anyio timeout enforcement
+            llm_request = LLMRequest(
+                system=ROUTER_SYSTEM_PROMPT,
+                messages=[LLMMessage(role="user", content=prompt)],
+                max_tokens=LLM_MAX_OUTPUT_TOKENS,
+                json_output=True,
+                timeout_seconds=LLM_TIMEOUT_SECONDS,
+            )
+
             async def _call_llm_with_timeout():
                 with anyio.fail_after(LLM_TIMEOUT_SECONDS):
-                    # Run synchronous OpenAI call in thread
                     return await anyio.to_thread.run_sync(
-                        lambda: self.client.chat.completions.create(
-                            model=self.model,
-                            messages=[
-                                {"role": "system", "content": "You are an intent router. You must respond ONLY with valid JSON matching the required schema. Never include explanations, apologies, or any text outside the JSON."},
-                                {"role": "user", "content": prompt}
-                            ],
-                            temperature=0.0,
-                            response_format={"type": "json_object"}
-                        ),
+                        lambda: self.llm.generate(llm_request),
                         abandon_on_cancel=True
                     )
 
             response = anyio.run(_call_llm_with_timeout)
 
             # Parse LLM response
-            response_text = response.choices[0].message.content
+            response_text = response.text
             if not response_text:
                 return RoutingResult(
                     status=RoutingStatus.ERROR,
@@ -218,12 +233,12 @@ class NLRouter:
                     error_message="LLM returned empty response"
                 )
 
-            # Stage 4: nl_openai_raw_response
+            # Stage 4: nl_llm_raw_response
             raw_preview = response_text[:1200]
             if len(response_text) > 1200:
                 raw_preview += "...<truncated>"
 
-            _trace(trace_id, "nl_openai_raw_response", {
+            _trace(trace_id, "nl_llm_raw_response", {
                 "raw_preview": raw_preview,
                 "raw_len_chars": len(response_text)
             })
@@ -246,11 +261,11 @@ class NLRouter:
             ambiguity = llm_output.get("ambiguity")
             user_message = llm_output.get("user_message")
 
-            # Stage 5: nl_openai_parsed
+            # Stage 5: nl_llm_parsed
             # Log LLM's original user_message for trace/debugging, but note it won't be used verbatim
             # needs_clarification must match has_clarification_signal logic (including user_message-only signal)
             has_clarification_signal_parsed = bool(missing_params or ambiguity or (user_message and not intent_id))
-            _trace(trace_id, "nl_openai_parsed", {
+            _trace(trace_id, "nl_llm_parsed", {
                 "intent_id": intent_id,
                 "confidence": confidence,
                 "missing_params": missing_params,
@@ -317,6 +332,17 @@ class NLRouter:
                 status=RoutingStatus.ERROR,
                 error_code="llm_timeout",
                 error_message=f"LLM request connection failed: {str(e)}"
+            )
+        except LLMError as e:
+            # Auth / quota / rate limit / provider outage / unusable reply (timeouts and
+            # connection failures were handled above). The user only sees the generic
+            # "remote services unavailable" message; the detail goes to the server log.
+            logger.error("LLM call failed (%s): %s", type(e).__name__, e)
+            is_bad_reply = isinstance(e, LLMResponseError)
+            return RoutingResult(
+                status=RoutingStatus.ERROR,
+                error_code="llm_bad_response" if is_bad_reply else "llm_unavailable",
+                error_message=f"{type(e).__name__}: {e}"
             )
         except json.JSONDecodeError as e:
             return RoutingResult(
@@ -533,9 +559,9 @@ Return JSON now:"""
                     param_descriptions.append(param.replace("_", " "))
 
             if len(param_descriptions) == 1:
-                return f"To {intent_desc}{shot_context}, I need {param_descriptions[0]}. Can you provide it?"
+                return f"To start {intent_desc}{shot_context}, I need {param_descriptions[0]}. Can you provide it?"
             else:
-                return f"To {intent_desc}{shot_context}, I need {', '.join(param_descriptions[:-1])}, and {param_descriptions[-1]}. Can you provide this information?"
+                return f"To start {intent_desc}{shot_context}, I need {', '.join(param_descriptions[:-1])}, and {param_descriptions[-1]}. Can you provide this information?"
 
         # Case 3: Fallback for other clarification needs
         if shot_code:
@@ -1182,8 +1208,10 @@ def get_router() -> Optional[NLRouter]:
     if _router is None:
         # Initialize registry and router
         _registry = IntentRegistry()
-        # Set timeout for LLM calls to prevent hanging on network issues (belt + suspenders with anyio.fail_after)
-        openai_client = OpenAI(api_key=settings.openai_api_key, timeout=LLM_TIMEOUT_SECONDS)
-        _router = NLRouter(_registry, openai_client)
+        # Provider/model come from settings (LLM_PROVIDER / LLM_MODEL). The timeout is a
+        # belt-and-suspenders guard alongside anyio.fail_after in NLRouter.route.
+        llm = create_provider(settings, timeout_seconds=LLM_TIMEOUT_SECONDS)
+        _router = NLRouter(_registry, llm)
+        logger.info("NL router using LLM provider=%s model=%s", llm.name, llm.model)
 
     return _router

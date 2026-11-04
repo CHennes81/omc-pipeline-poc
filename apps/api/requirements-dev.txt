@@ -1,0 +1,4 @@
+# Test tooling. Install with: pip install -r requirements-dev.txt
+-r requirements.txt
+-r requirements-openai.txt
+pytest==8.4.2

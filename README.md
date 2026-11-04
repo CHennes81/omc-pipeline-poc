@@ -58,7 +58,16 @@ pip install -r requirements.txt
 # DATABASE_URL=postgresql://localhost/omc_pipeline_poc
 # CORS_ORIGINS=http://localhost:5173
 # APP_ENV=local
+#
+# Natural-language Ask (optional). Requires ASK_NL_ENABLED=true and the selected provider's key:
+# LLM_PROVIDER=anthropic          # anthropic (active) | openai (inactive; pip install -r requirements-openai.txt)
+# LLM_MODEL=claude-haiku-5-5      # optional; e.g. claude-sonnet-5-5 for demos
+# ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+The LLM is reached only through the provider-neutral layer in `apps/api/app/llm/`; to add a vendor,
+implement `LLMProvider` in `app/llm/providers/` and register it in `app/llm/factory.py`.
+Tests: `pip install -r requirements-dev.txt && python -m pytest` (from `apps/api`).
 
 ### 3. Frontend Setup
 

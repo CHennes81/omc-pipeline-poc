@@ -1,7 +1,10 @@
 """Configuration management for the API."""
 import os
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import Optional
+
+from app.llm.factory import is_provider_configured, known_provider_names
 
 
 class Settings(BaseSettings):
@@ -11,8 +14,14 @@ class Settings(BaseSettings):
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
     app_env: str = os.getenv("APP_ENV", "local")
 
+    # LLM provider selection (see app/llm). Exactly one provider is active at a time.
+    llm_provider: str = "anthropic"  # one of app.llm.factory.known_provider_names()
+    llm_model: Optional[str] = None  # None = the provider's default (anthropic: claude-haiku-5-5)
+    anthropic_api_key: Optional[str] = None
+    anthropic_effort: Optional[str] = "low"  # low|medium|high|xhigh|max; Anthropic only
+    openai_api_key: Optional[str] = None  # used only when LLM_PROVIDER=openai (inactive provider)
+
     # Natural Language Ask Configuration (Appendix G)
-    openai_api_key: Optional[str] = None
     ask_nl_enabled: bool = False
     ask_dual_mode_ui: bool = False
     ask_default_mode: str = "deterministic"  # "deterministic" or "nl"
@@ -26,9 +35,19 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = False
 
+    @field_validator("llm_provider")
+    @classmethod
+    def _validate_llm_provider(cls, value: str) -> str:
+        name = value.strip().lower()
+        if name not in known_provider_names():
+            raise ValueError(
+                f"LLM_PROVIDER must be one of {', '.join(known_provider_names())} (got {value!r})"
+            )
+        return name
+
     def is_nl_enabled(self) -> bool:
-        """Check if NL Ask is properly configured and enabled."""
-        return self.ask_nl_enabled and self.openai_api_key is not None
+        """NL Ask is on AND the selected LLM provider has an API key."""
+        return self.ask_nl_enabled and is_provider_configured(self)
 
 
 settings = Settings()

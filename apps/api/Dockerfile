@@ -1,6 +1,7 @@
 # Build context is the repository root (see Railway service settings), because
 # the seed endpoint reads db/seed.sql from outside apps/api.
-FROM python:3.12-slim
+# Keep this in step with the Python used for local development (3.11.x).
+FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
