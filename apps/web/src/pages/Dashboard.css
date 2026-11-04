@@ -21,9 +21,9 @@
   /* Stage colors - muted, professional */
   --stage-new: #6b7280;
   --stage-capture: #8b5cf6;
-  --stage-offload: #06b6d4;
+  --stage-camera-master: #06b6d4;
   --stage-dailies: #10b981;
-  --stage-edit-export: #f59e0b;
+  --stage-edit-export: #f482bc;
   --stage-turnover: #3b82f6;
   --stage-archive: #64748b;
 
@@ -223,8 +223,8 @@
   border-left: 3px solid var(--stage-capture);
 }
 
-.stage-pill[data-stage='OFFLOAD'] {
-  border-left: 3px solid var(--stage-offload);
+.stage-pill[data-stage='CAMERA_MASTER'] {
+  border-left: 3px solid var(--stage-camera-master);
 }
 
 .stage-pill[data-stage='DAILIES'] {
@@ -332,9 +332,9 @@
   border-color: var(--stage-capture);
 }
 
-.stage-badge[data-stage='OFFLOAD'] {
-  color: var(--stage-offload);
-  border-color: var(--stage-offload);
+.stage-badge[data-stage='CAMERA_MASTER'] {
+  color: var(--stage-camera-master);
+  border-color: var(--stage-camera-master);
 }
 
 .stage-badge[data-stage='DAILIES'] {
@@ -357,20 +357,37 @@
   border-color: var(--stage-archive);
 }
 
-/* Blocked Shots Warning Header */
-.card-section-warning .card-section-header {
-  border-bottom-color: rgba(255, 169, 77, 0.3);
+/* Header rule tinted to match the selected stage tile */
+.card-section[data-accent] .card-section-header {
+  border-bottom-width: 2px;
 }
 
-.card-section-warning .card-section-title::before {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--dashboard-warning);
-  margin-right: var(--spacing-sm);
-  vertical-align: middle;
+.card-section[data-accent='ALL'] .card-section-header {
+  border-bottom-color: var(--dashboard-warning);
+}
+
+.card-section[data-accent='CAPTURE'] .card-section-header {
+  border-bottom-color: var(--stage-capture);
+}
+
+.card-section[data-accent='CAMERA_MASTER'] .card-section-header {
+  border-bottom-color: var(--stage-camera-master);
+}
+
+.card-section[data-accent='DAILIES'] .card-section-header {
+  border-bottom-color: var(--stage-dailies);
+}
+
+.card-section[data-accent='EDIT_EXPORT'] .card-section-header {
+  border-bottom-color: var(--stage-edit-export);
+}
+
+.card-section[data-accent='TURNOVER'] .card-section-header {
+  border-bottom-color: var(--stage-turnover);
+}
+
+.card-section[data-accent='ARCHIVE'] .card-section-header {
+  border-bottom-color: var(--stage-archive);
 }
 
 /* Empty State */
@@ -400,4 +417,71 @@
   .table-container td {
     padding: var(--spacing-sm);
   }
+}
+
+/* Interactive stage filter pills (buttons) */
+button.stage-pill {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+
+button.stage-pill:focus-visible {
+  outline: 2px solid var(--dashboard-accent);
+  outline-offset: 2px;
+}
+
+button.stage-pill[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--pill-color, var(--dashboard-accent)) 14%, transparent);
+  border-color: var(--pill-color, var(--dashboard-accent));
+}
+
+/* Each tile's own colour, used for its selected outline */
+.stage-pill[data-stage='ALL'] {
+  --pill-color: var(--dashboard-warning);
+}
+
+.stage-pill[data-stage='CAPTURE'] {
+  --pill-color: var(--stage-capture);
+}
+
+.stage-pill[data-stage='CAMERA_MASTER'] {
+  --pill-color: var(--stage-camera-master);
+}
+
+.stage-pill[data-stage='DAILIES'] {
+  --pill-color: var(--stage-dailies);
+}
+
+.stage-pill[data-stage='EDIT_EXPORT'] {
+  --pill-color: var(--stage-edit-export);
+}
+
+.stage-pill[data-stage='TURNOVER'] {
+  --pill-color: var(--stage-turnover);
+}
+
+.stage-pill[data-stage='ARCHIVE'] {
+  --pill-color: var(--stage-archive);
+}
+
+button.stage-pill[aria-pressed='true'] .stage-pill-label {
+  color: var(--dashboard-text-primary);
+}
+
+.stage-pill[data-stage='ALL'] {
+  border-left: 3px solid var(--dashboard-warning);
+}
+
+/* Zero-count tiles are inactive */
+button.stage-pill:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.stage-pill:disabled:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--dashboard-border);
 }

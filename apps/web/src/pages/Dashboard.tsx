@@ -13,6 +13,7 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [stageCounts, setStageCounts] = useState<Record<string, number>>({});
   const [blockedShots, setBlockedShots] = useState<ShotSummary[]>([]);
+  const [stageFilter, setStageFilter] = useState<string>('ALL');
 
   useEffect(() => {
     loadProductions();
@@ -65,6 +66,7 @@ export function Dashboard() {
       setLoading(true);
       const data = await api.getShots(productionCode);
       setShots(data.shots);
+      setStageFilter('ALL'); // a stage filter from another production may be empty here
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load shots');
     } finally {
@@ -73,7 +75,58 @@ export function Dashboard() {
   };
 
   // Filter out NEW stage from display (but keep it in computation)
-  const displayStages = ['CAPTURE', 'OFFLOAD', 'DAILIES', 'EDIT_EXPORT', 'TURNOVER', 'ARCHIVE'];
+  const displayStages = [
+    'CAPTURE',
+    'CAMERA_MASTER',
+    'DAILIES',
+    'EDIT_EXPORT',
+    'TURNOVER',
+    'ARCHIVE',
+  ];
+
+  // 'ALL' = the default "All Pending" view; otherwise a single stage filter.
+  const ALL = 'ALL';
+  const stageLabel = (stage: string) => stage.replace(/_/g, ' ');
+  const titleCase = (text: string) =>
+    text.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+
+  const visibleShots =
+    stageFilter === ALL ? blockedShots : shots.filter((shot) => shot.stage === stageFilter);
+
+  // DAILIES and EDIT_EXPORT shots are "pending activities"; other stages are plain stage listings.
+  const isPendingView =
+    stageFilter === ALL || stageFilter === 'DAILIES' || stageFilter === 'EDIT_EXPORT';
+  const listTitle = isPendingView
+    ? 'Pending Activities'
+    : `Shots in ${titleCase(stageLabel(stageFilter))}`;
+  const listSubtitle =
+    visibleShots.length > 0
+      ? isPendingView
+        ? `${visibleShots.length} shot${visibleShots.length !== 1 ? 's' : ''} with pending work`
+        : `${visibleShots.length} shot${visibleShots.length !== 1 ? 's' : ''}`
+      : undefined;
+  const emptyMessage = isPendingView
+    ? 'No pending activities'
+    : `No shots in ${titleCase(stageLabel(stageFilter))}`;
+
+  const reasonFor = (stage: string): string => {
+    switch (stage) {
+      case 'DAILIES':
+        return 'Has dailies but missing edit export';
+      case 'EDIT_EXPORT':
+        return 'Ready for turnover';
+      case 'CAPTURE':
+        return 'Captured, awaiting camera master';
+      case 'CAMERA_MASTER':
+        return 'Camera master ready, awaiting dailies';
+      case 'TURNOVER':
+        return 'Turned over, awaiting archive';
+      case 'ARCHIVE':
+        return 'Archived';
+      default:
+        return '-';
+    }
+  };
 
   return (
     <div className="dashboard">
@@ -106,22 +159,27 @@ export function Dashboard() {
         <>
           <CardSection title="Shots by Stage">
             <div className="stage-grid">
+              <StagePill
+                stage={ALL}
+                label="All Pending"
+                count={blockedShots.length}
+                selected={stageFilter === ALL}
+                onClick={() => setStageFilter(ALL)}
+              />
               {displayStages.map((stage) => (
-                <StagePill key={stage} stage={stage} count={stageCounts[stage] || 0} />
+                <StagePill
+                  key={stage}
+                  stage={stage}
+                  count={stageCounts[stage] || 0}
+                  selected={stageFilter === stage}
+                  onClick={() => setStageFilter(stage)}
+                />
               ))}
             </div>
           </CardSection>
 
-          <CardSection
-            title="Pending Activities"
-            subtitle={
-              blockedShots.length > 0
-                ? `${blockedShots.length} shot${blockedShots.length !== 1 ? 's' : ''} with pending work`
-                : undefined
-            }
-            warning={blockedShots.length > 0}
-          >
-            {blockedShots.length > 0 ? (
+          <CardSection title={listTitle} subtitle={listSubtitle} accent={stageFilter}>
+            {visibleShots.length > 0 ? (
               <div className="table-container">
                 <table>
                   <thead>
@@ -134,7 +192,7 @@ export function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {blockedShots.map((shot) => (
+                    {visibleShots.map((shot) => (
                       <tr key={shot.shot_code}>
                         <td>{shot.description || '-'}</td>
                         <td>
@@ -146,18 +204,14 @@ export function Dashboard() {
                             {shot.stage.replace(/_/g, ' ')}
                           </span>
                         </td>
-                        <td>
-                          {shot.stage === 'DAILIES'
-                            ? 'Has dailies but missing edit export'
-                            : 'Ready for turnover'}
-                        </td>
+                        <td>{reasonFor(shot.stage)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             ) : (
-              <div className="empty-state">No pending activities</div>
+              <div className="empty-state">{emptyMessage}</div>
             )}
           </CardSection>
         </>

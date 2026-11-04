@@ -1263,3 +1263,65 @@ When users asked questions like "What is the latest camera original?" (without s
 - Max 1 clarification cycle (Appendix G)
 - Deterministic execution only (no dynamic SQL)
 - All execution through registered intent templates
+
+---
+
+## Seed data – validated OMC-JSON on all assets, realistic timeline (2026-11-03)
+
+**Goal:** every asset version carries a complete OMC-JSON payload for its stage that passes the official MovieLabs OMC Validator; seed timestamps model a continuous camera-to-cloud flow.
+
+**Findings:**
+
+- `db/seed.sql` (not `scripts/generate_seed.py`, which is stale) is the source of truth; PR #8 had already added OMC-shaped JSON to all 112 versions.
+- Official validator (v2.8.0.8) accepts an array file; baseline of the existing seed passed. New payloads initially failed on: embedded `AssetSC` missing `schemaVersion`, `software` not an array, `instanceInfo.createdOn` (`oneOf` date/dateTime with an unanchored date pattern). `video.debayered` is not a controlled `functionalType` (V3 warning) so the master uses `shot` with the detail in `customData`.
+- Existing seed data corrected: Mini LF records LogC3 (not LogC4); Master Prime lens replaced with ARRI Signature Prime 35/T1.8 (large-format coverage); camera original is the ARRIRAW 3.8K LF 16:9 UHD mode (3840x2160).
+
+**Changes:**
+
+- `db/seed.sql` – `versions.omc_json` rebuilt for all 112 rows (AssetSC, assetFC, provenance, DerivationOf/RevisionOf, software, customData); all timestamps rewritten (no exact-hour times; capture-to-daily 18-33 min); automated-step tool names updated.
+- `scripts/rewrite_seed_omc_json.py`, `scripts/rewrite_seed_timeline.py` – **New.** Idempotent seed rewriters.
+- `Documentation/OMC-Asset-Metadata-Matrix.md` – **New.** Design, per-stage matrix, schema quirks, timeline model, Phase B list.
+- `Documentation/OMC-Spec/MovieLabs-OMC-JSON-v2.8.1/` – **New.** Unmodified vendored OMC-JSON v2.8.1 spec (Apache-2.0); `.prettierignore` excludes it.
+
+**Verification:** all 112 payloads extracted from `db/seed.sql` pass the official validator with no warnings; local database reseeded; Shot Detail and Inspector show the new data.
+
+**Not changed (Phase B):** relational columns duplicating JSON, `HDE_MASTER` / `HDE_TRANSCODE` naming, API/UI code.
+
+---
+
+## Phase B (part 1) – renames, automated actor, lineage drift test (2026-11-03)
+
+**Goal:** remove the misleading "HDE" stage names, give automated steps a service actor, and guarantee the two stored copies of lineage cannot drift.
+
+**Changes:**
+
+- Renamed version type `HDE_MASTER` -> `CAMERA_MASTER`, event type `HDE_TRANSCODE` -> `DEBAYER_TRANSCODE`, storage path `dam://hde_masters/` -> `dam://camera_masters/` in `db/seed.sql`, `db/views.sql` (stage view), `db/schema.sql` (comments), the seed rewrite scripts, `artifacts/FuncTechSpec.md` and the README. Earlier entries in this log keep the original names (append-only).
+- Actor on the automated `DEBAYER_TRANSCODE` and `DAILIES_PUBLISHED` events is now `Cloud Transcode Service` (OMC `Service` participant type).
+- `apps/api/tests/test_seed_lineage_consistency.py` – **New.** Seven tests: JSON parent equals `derived_from_version_id`, `RevisionOf` only on reworks, `version_lineage` table equals the column, payload identifiers equal row ids, JSON agrees with the still-present columns, no `":<digit>"` in seed JSON. Verified to fail on a corrupted seed copy.
+- `db/seed_verify.sql` – added the same drift check as SQL for a live database.
+- `scripts/generate_seed.py` – marked stale/unused.
+
+**Verification:** all 112 payloads pass the official OMC Validator; live-DB integrity and drift checks return 0 violations; stage counts unchanged.
+
+**Remaining (Phase B):** drop the duplicated `versions` columns (generate from `omc_json`), decide on `assets.reel_or_roll / camera_serial / clip_name`, Inspector friendly labels.
+
+---
+
+## Stage rename OFFLOAD -> CAMERA_MASTER and Inspector overview fix (2026-11-03)
+
+**Changes:**
+
+- Shot stage `OFFLOAD` renamed `CAMERA_MASTER` (derived from the `DEBAYER_TRANSCODE` event); the unused legacy `OFFLOAD` event alias was removed from `db/views.sql`. Dashboard tile, badges and filter colours (`--stage-camera-master`), reason text, `README.md` and `artifacts/FuncTechSpec.md` updated.
+- `apps/web/src/components/InspectorDrawer.tsx` – Overview tab hides rows whose value is a plain nested object (the `omc_json` row only rendered `[object]`); the Raw tab is unchanged.
+
+**Decisions recorded (no code):** dropping duplicated columns (including `assets.reel_or_roll / camera_serial / clip_name`) remains on hold. Full timestamps are valid in `provenance.createdOn` (typed `dateTime`); the defect is only in `instanceInfo.createdOn` / `lastUpdateOn`.
+
+**Verification:** web typecheck and lint clean; live database stage counts unchanged; Dashboard and Inspector checked in the browser.
+
+---
+
+## instanceInfo.createdOn restored as date-only (2026-11-03)
+
+- `instanceInfo.createdOn` is back on all 112 `omc_json` payloads as a plain date (the UTC date of the same instant as `provenance.createdOn`). A date is the only form that validates there (OMC schema defect: `oneOf(date, dateTime)` with an unanchored date pattern), so the data now shows the constraint. `provenance.createdOn` and all other timestamps are unchanged.
+- `scripts/rewrite_seed_omc_json.py` – emits both fields. `apps/api/tests/test_seed_lineage_consistency.py` – new test that the date equals the date of `provenance.createdOn`.
+- **Verification:** 56 API tests pass; all 112 payloads pass the official OMC Validator (no warnings); local database reseeded.

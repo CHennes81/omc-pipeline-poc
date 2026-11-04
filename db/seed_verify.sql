@@ -54,3 +54,18 @@ FROM package_members pm LEFT JOIN packages p ON pm.package_id = p.id WHERE p.id 
 SELECT 'package_members with invalid version_id' as check_name, COUNT(*) as violations
 FROM package_members pm LEFT JOIN versions v ON pm.version_id = v.id WHERE v.id IS NULL;
 
+
+-- Lineage drift check (should return 0 violations): the SQL parent must equal the OMC JSON parent
+-- (version.DerivationOf for derivations, version.RevisionOf for reworks). Lineage is stored in both places by design.
+SELECT 'versions whose omc_json parent differs from derived_from_version_id' as check_name, COUNT(*) as violations
+FROM versions v
+WHERE v.derived_from_version_id IS DISTINCT FROM (
+    NULLIF(
+        split_part(
+            COALESCE(
+                v.omc_json #>> '{version,DerivationOf,identifier,0,identifierValue}',
+                v.omc_json #>> '{version,RevisionOf,identifier,0,identifierValue}'
+            ),
+            '/version/', 2),
+        '')::uuid
+);

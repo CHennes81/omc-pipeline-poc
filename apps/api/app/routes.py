@@ -117,7 +117,8 @@ def get_shot_lineage(shot_code: str, production_code: str, db: Session = Depends
 
     # Get versions with lineage
     # Strategy: Start with latest version (by created_at/id), then recursively follow derived_from backward
-    # Order: depth ASC means latest version (depth 0) first, then ancestors in reverse chronological order
+    # Order: depth DESC returns the chain root-first (oldest ancestor first, latest version last),
+    # matching the Events Timeline and the other lineage endpoints/templates
     # Safety: Max depth of 20 prevents infinite loops from cycles
     # Note: We find the "latest" by selecting the version with highest created_at, or if tied, highest id
     query = text("""
@@ -144,7 +145,7 @@ def get_shot_lineage(shot_code: str, production_code: str, db: Session = Depends
         )
         SELECT id, version_type, derived_from_version_id
         FROM lineage_chain
-        ORDER BY depth ASC
+        ORDER BY depth DESC
     """)
     result = db.execute(query, {"shot_id": shot.id})
     rows = result.fetchall()

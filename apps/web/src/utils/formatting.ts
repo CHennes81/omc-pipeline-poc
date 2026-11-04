@@ -102,3 +102,14 @@ export function normalizeTimecode(timecode: string | null | undefined): string {
   // If we can't parse it, return as is
   return str;
 }
+
+/**
+ * Abbreviate a long ID (e.g. a UUID) for table display, git-hash style.
+ * Shows an ellipsis followed by the LAST 8 characters, since the leading
+ * characters of the seeded UUIDs are identical and not distinguishing.
+ * IDs of 8 characters or fewer are returned unchanged.
+ */
+export function shortId(id: string | null | undefined): string {
+  if (!id) return '-';
+  return id.length > 8 ? `...${id.slice(-8)}` : id;
+}

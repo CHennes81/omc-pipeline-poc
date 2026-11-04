@@ -33,7 +33,7 @@ This project follows the existing control pattern used in prior repos:
 
 ## 1. One‑sentence pitch
 
-A small web app that ingests a tiny **OMC-shaped** dataset for a fictional production, builds a **deterministic lineage graph** from **CAPTURE → OFFLOAD/HDE → DAILIES → EDIT_EXPORT → TURNOVER → ARCHIVE**, and answers studio questions with **verifiable evidence** (events/versions/packages).
+A small web app that ingests a tiny **OMC-shaped** dataset for a fictional production, builds a **deterministic lineage graph** from **CAPTURE → CAMERA_MASTER → DAILIES → EDIT_EXPORT → TURNOVER → ARCHIVE**, and answers studio questions with **verifiable evidence** (events/versions/packages).
 
 ---
 
@@ -195,7 +195,7 @@ Although Phase 1 uses relational tables for core entities, we will include a few
 ### 7.1 Required event types (Phase 1)
 
 - `CAPTURE`
-- `HDE_TRANSCODE` (or `OFFLOAD`)
+- `DEBAYER_TRANSCODE`
 - `DAILIES_PUBLISHED`
 - `EDIT_EXPORT_CREATED`
 - `TURNOVER_DELIVERED`
@@ -209,7 +209,7 @@ Stage is derived from most advanced completed event:
 - `TURNOVER` if `TURNOVER_DELIVERED` exists
 - `EDIT_EXPORT` if `EDIT_EXPORT_CREATED` exists
 - `DAILIES` if `DAILIES_PUBLISHED` exists
-- `OFFLOAD` if `HDE_TRANSCODE` (or OFFLOAD) exists
+- `CAMERA_MASTER` if `DEBAYER_TRANSCODE` exists
 - `CAPTURE` if `CAPTURE` exists
 - else `NEW`
 
@@ -261,7 +261,7 @@ Templates:
 
 Must show:
 
-- counts of shots by stage (NEW/CAPTURE/OFFLOAD/DAILIES/EDIT_EXPORT/TURNOVER/ARCHIVE)
+- counts of shots by stage (NEW/CAPTURE/CAMERA_MASTER/DAILIES/EDIT_EXPORT/TURNOVER/ARCHIVE)
 - a “Blocked Shots” list with reason, e.g.:
   - “Has dailies but missing edit export”
   - “Has edit export but not delivered to vendor” (optional)
@@ -467,7 +467,7 @@ These endpoints are optional. If implemented, they must be deterministic and onl
 
 #### `POST /shots/{shot_code}/ops/publish_dailies`
 
-Creates `DAILIES_PROXY` version (if missing) derived from latest `HDE_MASTER`, and emits `DAILIES_PUBLISHED` event.
+Creates `DAILIES_PROXY` version (if missing) derived from latest `CAMERA_MASTER`, and emits `DAILIES_PUBLISHED` event.
 
 #### `POST /shots/{shot_code}/ops/create_edit_export`
 
@@ -499,7 +499,7 @@ Web:
 
 - 3–5 shots.
 - Each shot has:
-  - CAMERA_ORIGINAL → HDE_MASTER → DAILIES_PROXY
+  - CAMERA_ORIGINAL → CAMERA_MASTER → DAILIES_PROXY
 - At least 1 shot lacks EDIT_EXPORT to demonstrate “blocked”.
 - At least 1 turnover package (3 shots).
 - At least 1 archive package (2 shots).
@@ -874,7 +874,7 @@ NL Ask behavior MUST be controlled via environment variables to support safe rol
   - If `false`, the backend MUST NOT call the LLM router and MUST reject NL mode requests.
 - `ASK_DUAL_MODE_UI` (boolean; default `false`)
   - If `true` and NL is enabled, the UI MAY expose a “Switch mode” link.
-- `ASK_DEFAULT_MODE` (`deterministic` | `nl`; default `deterministic`)
+- `ASK_DEFAULT_MODE` (`deterministic` | `nl`; default `nl`, effective only when NL is enabled and a provider key is configured)
   - Determines which mode the Ask page starts in.
 
 #### Confidence Threshold ENVVARs (initial defaults; tunable)

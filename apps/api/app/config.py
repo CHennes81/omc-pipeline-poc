@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # Natural Language Ask Configuration (Appendix G)
     ask_nl_enabled: bool = False
     ask_dual_mode_ui: bool = False
-    ask_default_mode: str = "deterministic"  # "deterministic" or "nl"
+    ask_default_mode: str = "nl"  # "deterministic" or "nl"; NL is only used when ask_nl_enabled and a provider key is configured
     ask_nl_confidence_min: float = 0.80
     ask_nl_confidence_execute_weak_min: float = 0.75
     ask_nl_confidence_clarify_min: float = 0.60
