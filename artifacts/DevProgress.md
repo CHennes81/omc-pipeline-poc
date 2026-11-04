@@ -1286,3 +1286,21 @@ When users asked questions like "What is the latest camera original?" (without s
 **Verification:** all 112 payloads extracted from `db/seed.sql` pass the official validator with no warnings; local database reseeded; Shot Detail and Inspector show the new data.
 
 **Not changed (Phase B):** relational columns duplicating JSON, `HDE_MASTER` / `HDE_TRANSCODE` naming, API/UI code.
+
+---
+
+## Phase B (part 1) – renames, automated actor, lineage drift test (2026-11-03)
+
+**Goal:** remove the misleading "HDE" stage names, give automated steps a service actor, and guarantee the two stored copies of lineage cannot drift.
+
+**Changes:**
+
+- Renamed version type `HDE_MASTER` -> `CAMERA_MASTER`, event type `HDE_TRANSCODE` -> `DEBAYER_TRANSCODE`, storage path `dam://hde_masters/` -> `dam://camera_masters/` in `db/seed.sql`, `db/views.sql` (stage view), `db/schema.sql` (comments), the seed rewrite scripts, `artifacts/FuncTechSpec.md` and the README. Earlier entries in this log keep the original names (append-only).
+- Actor on the automated `DEBAYER_TRANSCODE` and `DAILIES_PUBLISHED` events is now `Cloud Transcode Service` (OMC `Service` participant type).
+- `apps/api/tests/test_seed_lineage_consistency.py` – **New.** Seven tests: JSON parent equals `derived_from_version_id`, `RevisionOf` only on reworks, `version_lineage` table equals the column, payload identifiers equal row ids, JSON agrees with the still-present columns, no `":<digit>"` in seed JSON. Verified to fail on a corrupted seed copy.
+- `db/seed_verify.sql` – added the same drift check as SQL for a live database.
+- `scripts/generate_seed.py` – marked stale/unused.
+
+**Verification:** all 112 payloads pass the official OMC Validator; live-DB integrity and drift checks return 0 violations; stage counts unchanged.
+
+**Remaining (Phase B):** drop the duplicated `versions` columns (generate from `omc_json`), decide on `assets.reel_or_roll / camera_serial / clip_name`, Inspector friendly labels.

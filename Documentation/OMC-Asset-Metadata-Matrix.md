@@ -1,6 +1,6 @@
 # OMC Asset Metadata Matrix
 
-> **Status:** Phase A implemented and validated (2026-11-03). Phase B (structural cleanup) not started.
+> **Status:** Phase A (validated OMC-JSON, realistic timeline) and Phase B part 1 (renames, automated actor, lineage drift test) implemented and validated (2026-11-03). Remaining Phase B: dropping the duplicated columns and the API/UI changes that follow (§8).
 > **Vocabulary:** MovieLabs Ontology for Media Creation, **OMC-JSON v2.8** (schema file `OMC-JSON-v2.8.schema.json`, changelog "2.8.1 update for 2/4/2026").
 > **Spec copy:** the complete spec is vendored, unmodified, at `Documentation/OMC-Spec/MovieLabs-OMC-JSON-v2.8.1/` (see its `SOURCE.md`). **[V]** below = read from that copy; **[S]** = external source (linked at the end); **[P]** = our design decision or convention; **[?]** = open.
 
@@ -12,15 +12,15 @@ Each row in `versions` carries an OMC-JSON `Asset` in `omc_json`: the asset's **
 
 ## 2. Pipeline modelled (simplified)
 
-`Camera Raw → Debayered Camera Master → Dailies Proxy → Edit Export` (+ rework revisions), then Turnover and Archive packages. Stage names in the database are still `CAMERA_ORIGINAL`, `HDE_MASTER`, `DAILIES_PROXY`, `EDIT_EXPORT`.
+`Camera Raw → Debayered Camera Master → Dailies Proxy → Edit Export` (+ rework revisions), then Turnover and Archive packages. Version types in the database are `CAMERA_ORIGINAL`, `CAMERA_MASTER`, `DAILIES_PROXY`, `EDIT_EXPORT`.
 
-**About "HDE":** HDE is **High Density Encoding**, a CODEX/ARRI **lossless compression of ARRIRAW** (`.arx` for Mini LF); it stays raw and unviewable. [S] It is _not_ an industry term for a debayered master. The row we call `HDE_MASTER` is, in the data, a **debayered, viewable camera master**, so the stage name is misleading. Renaming (e.g. `CAMERA_MASTER`; event `HDE_TRANSCODE` → a debayer/transcode name) is a **Phase B** item **[?]**.
+**About "HDE":** HDE is **High Density Encoding**, a CODEX/ARRI **lossless compression of ARRIRAW** (`.arx` for Mini LF); it stays raw and unviewable. [S] It is _not_ an industry term for a debayered master. The stage that was originally named `HDE_MASTER` is, in the data, a **debayered, viewable camera master**, so it was **renamed `CAMERA_MASTER`** and its event `HDE_TRANSCODE` became **`DEBAYER_TRANSCODE`** (storage paths `dam://hde_masters/` → `dam://camera_masters/`). The dashboard stage derived from that event is still labelled `OFFLOAD` **[?]**.
 
 **Continuous camera-to-cloud flow [P]:** raw lands in cloud storage, which automatically triggers the debayer/master transcode, which triggers the dailies transcode; 18–33 minutes from take to daily (see §6). Generic tool names: `Cloud Auto-Debayer & Master Transcode`, `Cloud Auto-Dailies Transcode`. Industry vocabulary used: _camera-to-cloud (C2C)_, _original camera files (OCF)_, _debayer_, _transcode_, _proxy_, _dailies_ ([Frame.io C2C guide](https://blog.frame.io/2021/02/11/frameio-c2c-technical-guide/)). The user's term "continuous confirm" was interpreted as this C2C / continuous-ingest flow **[?]**.
 
 ## 3. What each stage carries
 
-| OMC path                                   | Camera Raw (`CAMERA_ORIGINAL`)                                            | Camera Master (`HDE_MASTER`)          | Dailies Proxy                | Edit Export (and reworks)                                 |
+| OMC path                                   | Camera Raw (`CAMERA_ORIGINAL`)                                            | Camera Master (`CAMERA_MASTER`)       | Dailies Proxy                | Edit Export (and reworks)                                 |
 | ------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------- | ---------------------------- | --------------------------------------------------------- |
 | `assetFC.functionalType`                   | `capture.ocf` [V]                                                         | `shot` [V]                            | `proxy.daily` [V]            | `shot.editorial` [V]                                      |
 | `AssetSC.structuralType`                   | `digital.movingImage`                                                     | `digital.movingImage`                 | `digital.movingImage`        | `digital.movingImage`                                     |
@@ -45,7 +45,7 @@ Each row in `versions` carries an OMC-JSON `Asset` in `omc_json`: the asset's **
 - **Colour space:** camera master stays in log with no look baked in (ARRI publishes LogC3 viewing LUTs for OCF; practitioners keep masters in log and apply Rec.709 as a viewing transform) [S]. Dailies/edit export in Rec.709 is **convention, not a verified spec value** [P].
 - **ProRes 422 HQ** is 10-bit 4:2:2, rated by Apple at about 220 Mbps at 1920×1080/29.97; Apple does not publish a UHD figure (third-party estimates ≈707 Mbps at UHD/24) [S]. Chosen for the master because it is a high-quality, widely used mastering codec; **the seed's choice is carried over, not independently confirmed as typical** [?].
 - **Lineage caveat [?]:** the edit export is derived from the (1080p) dailies in our 1→1 chain, yet is 4K. In real workflows editorial cuts with proxies and then **conforms back to the camera masters**. Fine as a simplification (multi-input is out of scope), worth knowing as a talking point.
-- **Actors vs automation [?]:** the `HDE_TRANSCODE` event still lists actor "DIT" although the step is now automated; left unchanged pending your call.
+- **Automated steps have a service actor.** The debayer/master and dailies steps are performed by an automated service, not a person, so their event actor is **`Cloud Transcode Service`**, matching OMC's `Participant` type **`Service`** ("Transcoding service or transfer service") [V]. Industry has no standard term for this: a "DIT cart" is the physical on-set workstation, and "Auto-DIT" is a talking point rather than a term. [S]
 
 ## 4. Camera facts verified (ALEXA Mini LF)
 
@@ -75,12 +75,12 @@ Production in US Pacific (Jan = UTC-8), stored as UTC; the app shows browser-loc
 - Reload with `POST /api/import/seed {"mode":"reset_and_seed"}`.
 - Re-validate by emitting/extracting the payloads and uploading to the official validator.
 
-## 8. Phase B (not started) — structural cleanup
+## 8. Phase B — structural cleanup (part 1 done)
 
-1. Drop `versions.codec / container / fps / timecode_in / timecode_out / bitrate` and generate them from `omc_json` (~39 code references: ask templates, API schemas, UI tables, audit cards).
+1. **Next:** drop `versions.codec / container / fps / timecode_in / timecode_out / bitrate` and generate them from `omc_json` (~39 code references: ask templates, API schemas, UI tables, audit cards).
 2. Decide on `assets.reel_or_roll / camera_serial / clip_name` (now in `cameraMetadata` / `fileDetails`).
-3. **Keep** `derived_from_version_id` and `version_lineage` (fast SQL traversal; the graph-DB argument does not apply here) and add a test that they agree with `version.DerivationOf`. Deliberate exception to "no redundancy".
-4. Rename `HDE_MASTER` / `HDE_TRANSCODE` (see §2); review automated-step actors.
+3. **Done:** `derived_from_version_id` and `version_lineage` are **kept** (fast SQL traversal; the graph-DB argument does not apply here) and lineage is stored in both places by design. `apps/api/tests/test_seed_lineage_consistency.py` fails if the SQL parent, the `version_lineage` table, and the JSON `DerivationOf` / `RevisionOf` ever disagree (proved against a deliberately corrupted copy); `db/seed_verify.sql` has the same check for the live database.
+4. **Done:** `HDE_MASTER` → `CAMERA_MASTER`, `HDE_TRANSCODE` → `DEBAYER_TRANSCODE`, automated-step actor → `Cloud Transcode Service`. `db/views.sql` (stage view) and the local database were updated; a deployed database needs `views.sql` re-applied and a reseed.
 5. Friendly-name labels in the Inspector Overview over OMC keys (a talking point: vendor names in the UI, OMC in the JSON).
 6. Out of scope by decision: audio, rights/legal, multiple inputs per asset, Task/Infrastructure, OMC JSON for packages.
 

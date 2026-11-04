@@ -225,7 +225,7 @@ The seed includes:
 
 - 1 production (EXFTR), 28 shots across 3 shoot days (Jan 15-17, 2026)
 - 112 asset versions, each with a validated OMC-JSON payload (`versions.omc_json`)
-- Complete lineage chains: CAMERA_ORIGINAL (raw) → HDE_MASTER (debayered camera master) → DAILIES_PROXY → (most) EDIT_EXPORT; 4 rework exports
+- Complete lineage chains: CAMERA_ORIGINAL (raw) → CAMERA_MASTER (debayered camera master) → DAILIES_PROXY → (most) EDIT_EXPORT; 4 rework exports
 - Blocked cases: shots with dailies but no edit export
 - Packages: 1 TURNOVER package, 1 ARCHIVE package
 - Events: full event timeline per shot, modelling a continuous camera-to-cloud flow (about 18-33 minutes from take to dailies)

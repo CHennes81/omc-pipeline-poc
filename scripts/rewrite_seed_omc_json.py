@@ -6,8 +6,8 @@ This script reads the seed rows (assets, shots, events, versions), builds one OM
 per version row, and either emits them as a JSON array for the official OMC validator
 (--emit PATH) or rewrites the omc_json column in place (--write). It touches nothing else in the file.
 
-Stage names in the seed are unchanged (CAMERA_ORIGINAL, HDE_MASTER, ...); the OMC JSON describes
-the simplified pipeline: Camera Raw -> Debayered Camera Master -> Dailies Proxy -> Edit Export.
+Version types: CAMERA_ORIGINAL (raw), CAMERA_MASTER (debayered), DAILIES_PROXY, EDIT_EXPORT. The OMC JSON describes
+the pipeline Camera Raw -> Debayered Camera Master -> Dailies Proxy -> Edit Export.
 
 Usage:
     python3 scripts/rewrite_seed_omc_json.py --emit /path/payloads.json
@@ -138,7 +138,7 @@ def build(v, ctx):
 
     title = {
         "CAMERA_ORIGINAL": ("Camera Raw", "Camera-original raw capture (ARRIRAW) as recorded by the camera (POC example)."),
-        "HDE_MASTER": ("Camera Master", "Full-resolution, debayered, viewable camera master derived from the camera raw (POC example)."),
+        "CAMERA_MASTER": ("Camera Master", "Full-resolution, debayered, viewable camera master derived from the camera raw (POC example)."),
         "DAILIES_PROXY": ("Dailies Proxy", "Downrezzed Full HD review proxy for dailies (POC example)."),
         "EDIT_EXPORT": ("Edit Export", "Editorial export of the shot from the edit (POC example)."),
     }[vt]
@@ -146,7 +146,7 @@ def build(v, ctx):
 
     functional = {
         "CAMERA_ORIGINAL": "capture.ocf",
-        "HDE_MASTER": MASTER_FUNCTIONAL_TYPE,
+        "CAMERA_MASTER": MASTER_FUNCTIONAL_TYPE,
         "DAILIES_PROXY": "proxy.daily",
         "EDIT_EXPORT": "shot.editorial",
     }[vt]
@@ -184,7 +184,7 @@ def build(v, ctx):
     sc_custom = {"frameRate": str(FPS), "container": v["container"]}
     if vt == "CAMERA_ORIGINAL":
         sc_custom["colorSpace"] = "ARRI LogC3"
-    elif vt == "HDE_MASTER":
+    elif vt == "CAMERA_MASTER":
         # Camera master stays in log (no look baked in); this is the debayered form of the raw.
         sc_custom["colorSpace"] = "ARRI LogC3"
         sc_custom["functionalTypeDetail"] = "video.debayered"  # OMC docs example term; not a controlled value

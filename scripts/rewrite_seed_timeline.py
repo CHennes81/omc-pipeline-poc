@@ -11,7 +11,7 @@ Model (continuous camera-to-cloud flow, production in US Pacific, Jan = UTC-8; s
   * Turnover and archive are single deliveries: package created, members added a few seconds apart,
     delivery events a few minutes later; archive follows turnover by hours.
 
-Also renames the automated processing tools on the HDE_TRANSCODE / DAILIES_PUBLISHED events.
+Also sets the tool and the actor (an automated service, not a person) on the DEBAYER_TRANSCODE / DAILIES_PUBLISHED events.
 
 Deterministic (seeded per shot), so re-running gives the same result. Run BEFORE
 rewrite_seed_omc_json.py (the OMC payloads read versions.created_at).
@@ -37,6 +37,7 @@ PT = timedelta(hours=8)  # Pacific standard time offset (January)
 SEED_STR = "exftr-timeline-v1"
 MASTER_TOOL = "Cloud Auto-Debayer & Master Transcode"
 DAILIES_TOOL = "Cloud Auto-Dailies Transcode"
+AUTOMATED_ACTOR = "Cloud Transcode Service"  # OMC Participant type `Service`: "Transcoding service or transfer service"
 PRODUCTION_CREATED = datetime(2026, 1, 12, 17, 3, 27, tzinfo=timezone.utc)
 SLOTS = {  # original shoot schedule (clock time, read as Pacific local); fixed so re-runs are idempotent
     "011_001": "2026-01-15 08:00:00",
@@ -115,7 +116,7 @@ def main():
         master = raw + timedelta(seconds=rng.randint(9 * 60 + 4, 15 * 60 + 57))
         daily = master + timedelta(seconds=rng.randint(7 * 60 + 11, 13 * 60 + 49))
         T[("stage", s["id"], "CAMERA_ORIGINAL")] = raw
-        T[("stage", s["id"], "HDE_MASTER")] = master
+        T[("stage", s["id"], "CAMERA_MASTER")] = master
         T[("stage", s["id"], "DAILIES_PROXY")] = daily
         local_midnight = (t0 - PT).replace(hour=0, minute=0, second=0, microsecond=0)
         if i < 24:  # last 4 shots have no edit export (blocked)
@@ -183,12 +184,14 @@ def main():
         et = r["event_type"]
         if et == "CAPTURE":
             t = T[("cap", r["shot_id"])]
-        elif et in ("HDE_TRANSCODE", "DAILIES_PUBLISHED", "EDIT_EXPORT_CREATED"):
+        elif et in ("DEBAYER_TRANSCODE", "DAILIES_PUBLISHED", "EDIT_EXPORT_CREATED"):
             t = T[r["version_id"]]
-            if et == "HDE_TRANSCODE":
+            if et == "DEBAYER_TRANSCODE":
                 put(ln, cols, toks, "tool", f"'{MASTER_TOOL}'")
+                put(ln, cols, toks, "actor", f"'{AUTOMATED_ACTOR}'")
             elif et == "DAILIES_PUBLISHED":
                 put(ln, cols, toks, "tool", f"'{DAILIES_TOOL}'")
+                put(ln, cols, toks, "actor", f"'{AUTOMATED_ACTOR}'")
         elif et in ("TURNOVER_DELIVERED", "ARCHIVED"):
             pid = r["package_id"]
             k = ev_seq.get(pid, 0)
@@ -206,7 +209,7 @@ def main():
     by_shot = {}
     for sid, et, t in event_times:
         by_shot.setdefault(sid, {}).setdefault(et, []).append(t)
-    order = ["CAPTURE", "HDE_TRANSCODE", "DAILIES_PUBLISHED", "EDIT_EXPORT_CREATED", "TURNOVER_DELIVERED", "ARCHIVED"]
+    order = ["CAPTURE", "DEBAYER_TRANSCODE", "DAILIES_PUBLISHED", "EDIT_EXPORT_CREATED", "TURNOVER_DELIVERED", "ARCHIVED"]
     chain_minutes = []
     for sid, d in by_shot.items():
         prev = None

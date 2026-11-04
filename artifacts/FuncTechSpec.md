@@ -195,7 +195,7 @@ Although Phase 1 uses relational tables for core entities, we will include a few
 ### 7.1 Required event types (Phase 1)
 
 - `CAPTURE`
-- `HDE_TRANSCODE` (or `OFFLOAD`)
+- `DEBAYER_TRANSCODE` (or `OFFLOAD`)
 - `DAILIES_PUBLISHED`
 - `EDIT_EXPORT_CREATED`
 - `TURNOVER_DELIVERED`
@@ -209,7 +209,7 @@ Stage is derived from most advanced completed event:
 - `TURNOVER` if `TURNOVER_DELIVERED` exists
 - `EDIT_EXPORT` if `EDIT_EXPORT_CREATED` exists
 - `DAILIES` if `DAILIES_PUBLISHED` exists
-- `OFFLOAD` if `HDE_TRANSCODE` (or OFFLOAD) exists
+- `OFFLOAD` if `DEBAYER_TRANSCODE` (or OFFLOAD) exists
 - `CAPTURE` if `CAPTURE` exists
 - else `NEW`
 
@@ -467,7 +467,7 @@ These endpoints are optional. If implemented, they must be deterministic and onl
 
 #### `POST /shots/{shot_code}/ops/publish_dailies`
 
-Creates `DAILIES_PROXY` version (if missing) derived from latest `HDE_MASTER`, and emits `DAILIES_PUBLISHED` event.
+Creates `DAILIES_PROXY` version (if missing) derived from latest `CAMERA_MASTER`, and emits `DAILIES_PUBLISHED` event.
 
 #### `POST /shots/{shot_code}/ops/create_edit_export`
 
@@ -499,7 +499,7 @@ Web:
 
 - 3–5 shots.
 - Each shot has:
-  - CAMERA_ORIGINAL → HDE_MASTER → DAILIES_PROXY
+  - CAMERA_ORIGINAL → CAMERA_MASTER → DAILIES_PROXY
 - At least 1 shot lacks EDIT_EXPORT to demonstrate “blocked”.
 - At least 1 turnover package (3 shots).
 - At least 1 archive package (2 shots).

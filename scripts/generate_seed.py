@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Generate seed.sql per Appendix H specification."""
+"""Generate seed.sql per Appendix H specification.
+
+STALE / UNUSED: db/seed.sql is now the source of truth and has diverged (28 shots, OMC-JSON on every version,
+realistic timeline, renamed stages). Do not regenerate db/seed.sql from this script. See
+Documentation/OMC-Asset-Metadata-Matrix.md section 7.
+"""
 import json
 from datetime import datetime, timedelta
 
