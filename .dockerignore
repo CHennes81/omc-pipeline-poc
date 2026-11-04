@@ -2,5 +2,9 @@
 node_modules
 **/__pycache__
 **/.venv
+**/.pytest_cache
+# Never bake local secrets into an image; deployed config comes from the host's env vars.
+**/.env
+**/.env.*
 apps/web
 artifacts
