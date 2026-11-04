@@ -8,7 +8,7 @@ against each other and against the seed):
   * Python extractors, used by the ORM (`models.Version` properties) and the REST responses.
   * SQL expressions over a `versions` row aliased `v`, used by the Ask templates' raw SQL.
 
-Paths (OMC-JSON v2.8; OMC has no native frame rate / container / clip name field, so those three sit in the
+Paths (OMC-JSON v2.8; the schema defines no frame rate / container / clip name property, so those three sit in the
 `AssetSC.customData` entry with domain "poc", namespace "plc"):
 
   codec        AssetSC.structuralProperties.codec

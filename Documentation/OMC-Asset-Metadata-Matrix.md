@@ -80,15 +80,15 @@ Production in US Pacific (Jan = UTC-8), stored as UTC; the app shows browser-loc
 
 1. **Done:** dropped `versions.codec / container / fps / timecode_in / timecode_out / bitrate` and `assets.clip_name / reel_or_roll / camera_serial`. The values are read from `omc_json`; `apps/api/app/omc_fields.py` is the single map of where each one lives (Python extractors for the ORM/REST layer, SQL expressions for the Ask templates). `models.Version` exposes `codec / container / fps / timecode_in / timecode_out` as read-only properties, so API responses and Ask answers are **unchanged**: a before/after snapshot of every GET route and Ask template (378 entries) differed only by the new `clipName` field inside `omc_json` (and random event row ids).
 
-   | Attribute       | OMC-JSON path                                                                                                 |
-   | --------------- | ------------------------------------------------------------------------------------------------------------- |
-   | codec           | `AssetSC.structuralProperties.codec`                                                                          |
-   | container       | `AssetSC.customData[poc/plc].value.container`                                                                 |
-   | frame rate      | `AssetSC.customData[poc/plc].value.frameRate`                                                                 |
-   | timecode in/out | `assetFC.functionalProperties.cameraMetadata.timecodeStart/End` (raw) or `...timing.sourceStart/End` (others) |
-   | clip name       | `AssetSC.customData[poc/plc].value.clipName` (camera original only; **OMC v2.8 has no clip-name field** [V])  |
-   | reel            | `assetFC.functionalProperties.cameraMetadata.reelName` (camera original only)                                 |
-   | camera serial   | `assetFC.functionalProperties.cameraMetadata.cameraSerialNumber` (camera original only)                       |
+   | Attribute       | OMC-JSON path                                                                                                                                                                                                                                     |
+   | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | codec           | `AssetSC.structuralProperties.codec`                                                                                                                                                                                                              |
+   | container       | `AssetSC.customData[poc/plc].value.container`                                                                                                                                                                                                     |
+   | frame rate      | `AssetSC.customData[poc/plc].value.frameRate`                                                                                                                                                                                                     |
+   | timecode in/out | `assetFC.functionalProperties.cameraMetadata.timecodeStart/End` (raw) or `...timing.sourceStart/End` (others)                                                                                                                                     |
+   | clip name       | `AssetSC.customData[poc/plc].value.clipName` (camera original only; **the OMC-JSON schema has no clip-name property** (checked v2.0, v2.6, v2.8); MovieLabs' own HSM examples carry an informal `clipName` in `assetFC.functionalProperties` [V]) |
+   | reel            | `assetFC.functionalProperties.cameraMetadata.reelName` (camera original only)                                                                                                                                                                     |
+   | camera serial   | `assetFC.functionalProperties.cameraMetadata.cameraSerialNumber` (camera original only)                                                                                                                                                           |
 
    Video bitrate had no seed data and no consumer; it was dropped without replacement (OMC has no native video bitrate field [V]).
 

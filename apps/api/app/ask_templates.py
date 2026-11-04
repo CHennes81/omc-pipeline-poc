@@ -165,16 +165,22 @@ def shots_ready_for_turnover_and_missing(db: Session, production_code: str) -> D
     }
 
 
-def package_members(db: Session, package_id: str) -> Dict[str, Any]:
-    """Template: package_members(package_id)"""
+def package_members(db: Session, package_id: str, production_code: str) -> Dict[str, Any]:
+    """Template: package_members(package_id)
+
+    `production_code` is injected by every Ask route; the package must belong to that production.
+    """
     query = text(f"""
         SELECT v.id, v.version_type, v.storage_uri, {SQL_CODEC} AS codec, {SQL_FPS} AS fps, v.created_at
         FROM versions v
         JOIN package_members pm ON v.id = pm.version_id
-        WHERE pm.package_id = :package_id::uuid
+        JOIN packages pk ON pk.id = pm.package_id
+        JOIN productions p ON p.id = pk.production_id
+        WHERE pm.package_id = CAST(:package_id AS uuid)
+          AND p.code = :production_code
         ORDER BY v.created_at
     """)
-    result = db.execute(query, {"package_id": package_id})
+    result = db.execute(query, {"package_id": package_id, "production_code": production_code})
     rows = result.fetchall()
 
     versions = [dict(row._mapping) for row in rows]

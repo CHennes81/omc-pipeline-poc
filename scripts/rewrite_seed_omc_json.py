@@ -219,7 +219,7 @@ def build(v, ctx):
     sc_custom = {"frameRate": str(FPS), "container": mi["container"]}
     if vt == "CAMERA_ORIGINAL":
         sc_custom["colorSpace"] = "ARRI LogC3"
-        # OMC v2.8 has no clip-name field (cameraLabel is a camera id): the camera's original clip name goes here.
+        # The OMC-JSON schema defines no clip-name property (cameraLabel is a camera id): the original clip name goes here.
         sc_custom["clipName"] = mi["clip_name"]
     elif vt == "CAMERA_MASTER":
         # Camera master stays in log (no look baked in); this is the debayered form of the raw.
