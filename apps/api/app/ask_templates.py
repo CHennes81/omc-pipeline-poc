@@ -4,6 +4,7 @@ from sqlalchemy import text
 from typing import Dict, Any, List
 from uuid import UUID
 
+from app.audit_cards import enrich_version_cards
 from app.omc_fields import (
     SQL_CODEC, SQL_FPS, SQL_TIMECODE_IN, SQL_TIMECODE_OUT, SQL_CLIP_NAME, SQL_REEL,
 )
@@ -44,7 +45,7 @@ def latest_camera_original(db: Session, shot_code: str, production_code: str) ->
             "explanation": f"Query for latest CAMERA_ORIGINAL version of shot {shot_code}"
         }
 
-    version = dict(row._mapping)
+    version = enrich_version_cards(db, [dict(row._mapping)])[0]
     return {
         "template": "latest_camera_original",
         "params": {"shot_code": shot_code},
@@ -92,7 +93,7 @@ def lineage_chain_to_latest_edit_export(db: Session, shot_code: str, production_
     result = db.execute(query, {"shot_code": shot_code, "production_code": production_code})
     rows = result.fetchall()
 
-    chain = [dict(row._mapping) for row in rows]
+    chain = enrich_version_cards(db, [dict(row._mapping) for row in rows])
 
     if not chain:
         return {
@@ -193,7 +194,7 @@ def package_members(db: Session, package_id: str, production_code: str) -> Dict[
     result = db.execute(query, {"package_id": package_id, "production_code": production_code})
     rows = result.fetchall()
 
-    versions = [dict(row._mapping) for row in rows]
+    versions = enrich_version_cards(db, [dict(row._mapping) for row in rows])
 
     return {
         "template": "package_members",
@@ -230,7 +231,7 @@ def source_relink_keys(db: Session, shot_code: str, production_code: str) -> Dic
             "explanation": f"Query for relink keys (fps, timecode) for camera original of shot {shot_code}"
         }
 
-    version = dict(row._mapping)
+    version = enrich_version_cards(db, [dict(row._mapping)])[0]
     return {
         "template": "source_relink_keys",
         "params": {"shot_code": shot_code},
@@ -256,7 +257,7 @@ def latest_versions_by_type(db: Session, shot_code: str, production_code: str) -
     result = db.execute(query, {"shot_code": shot_code, "production_code": production_code})
     rows = result.fetchall()
 
-    versions = [dict(row._mapping) for row in rows]
+    versions = enrich_version_cards(db, [dict(row._mapping) for row in rows])
 
     return {
         "template": "latest_versions_by_type",

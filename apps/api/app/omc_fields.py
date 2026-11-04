@@ -21,6 +21,10 @@ where MovieLabs' own HSM examples put it (the validator does not check unknown k
   clip name    assetFC.functionalProperties.clipName                 (camera original only)
   reel         assetFC.functionalProperties.cameraMetadata.reelName  (camera original only)
   camera serial assetFC.functionalProperties.cameraMetadata.cameraSerialNumber (camera original only)
+  width/height AssetSC.structuralProperties.dimensions.width/height ("3840px" -> "3840")
+  colour space AssetSC.customData[poc/plc].value.colorSpace
+  camera/lens  assetFC.functionalProperties.cameraMetadata.* / lensMetadata.*  (camera original only)
+  reason       provenance.reason                                       (rework edit exports only)
 """
 from typing import Any, Dict, Optional
 
@@ -69,6 +73,23 @@ def timecode_out(omc):
 def clip_name(omc): return _fprops(omc).get("clipName")
 def reel(omc): return _get(_fprops(omc), "cameraMetadata", "reelName")
 def camera_serial(omc): return _get(_fprops(omc), "cameraMetadata", "cameraSerialNumber")
+
+
+def _px(value) -> Optional[str]:
+    return str(value).replace("px", "").strip() or None if value not in (None, "") else None
+
+
+def width(omc): return _px(_get(omc, "AssetSC", "structuralProperties", "dimensions", "width"))
+def height(omc): return _px(_get(omc, "AssetSC", "structuralProperties", "dimensions", "height"))
+def color_space(omc): return _custom(omc).get("colorSpace")
+def reason(omc): return _get(omc, "provenance", "reason")
+def camera_make(omc): return _get(_fprops(omc), "cameraMetadata", "cameraMake")
+def camera_model(omc): return _get(_fprops(omc), "cameraMetadata", "cameraModel")
+def exposure_index(omc): return _get(_fprops(omc), "cameraMetadata", "exposureIndex")
+def lens_make(omc): return _get(_fprops(omc), "lensMetadata", "lensMake")
+def lens_model(omc): return _get(_fprops(omc), "lensMetadata", "lensModel")
+def focal_length(omc): return _get(_fprops(omc), "lensMetadata", "focalLength")
+def t_stop(omc): return _get(_fprops(omc), "lensMetadata", "tStop")
 
 
 # ---- SQL equivalents (alias the versions table as `v`). Constants only: never interpolate user input. ----
