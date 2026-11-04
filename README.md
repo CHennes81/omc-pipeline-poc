@@ -210,7 +210,9 @@ omc-pipeline-poc/
 ├── db/
 │   ├── schema.sql        # Database schema
 │   ├── views.sql         # Database views
-│   └── seed.sql          # Seed data
+│   └── seed.sql          # Seed data (source of truth)
+├── scripts/              # Seed maintenance (rewrite_seed_timeline.py, rewrite_seed_omc_json.py)
+├── Documentation/        # OMC design notes + vendored MovieLabs OMC-JSON spec
 └── artifacts/            # Control documents
     ├── FuncTechSpec.md   # Functional spec
     ├── DevPlan.md        # Project plan
@@ -221,12 +223,14 @@ omc-pipeline-poc/
 
 The seed includes:
 
-- 1 production (EXFTR)
-- 5 shots (011_002, 011_022, 012_010, 012_011, 013_015)
-- Complete lineage chains: CAMERA_ORIGINAL → HDE_MASTER → DAILIES_PROXY → (some) EDIT_EXPORT
+- 1 production (EXFTR), 28 shots across 3 shoot days (Jan 15-17, 2026)
+- 112 asset versions, each with a validated OMC-JSON payload (`versions.omc_json`)
+- Complete lineage chains: CAMERA_ORIGINAL (raw) → HDE_MASTER (debayered camera master) → DAILIES_PROXY → (most) EDIT_EXPORT; 4 rework exports
 - Blocked cases: shots with dailies but no edit export
 - Packages: 1 TURNOVER package, 1 ARCHIVE package
-- Events: Full event timeline per shot
+- Events: full event timeline per shot, modelling a continuous camera-to-cloud flow (about 18-33 minutes from take to dailies)
+
+`db/seed.sql` is the source of truth; `scripts/generate_seed.py` is stale and unused. To change timestamps or OMC payloads, run `scripts/rewrite_seed_timeline.py` then `scripts/rewrite_seed_omc_json.py --write`, reload the seed, and re-validate the payloads with the official MovieLabs OMC Validator (https://omc-validator.mc.movielabs.com/). Details: `Documentation/OMC-Asset-Metadata-Matrix.md`.
 
 ## Development Notes
 

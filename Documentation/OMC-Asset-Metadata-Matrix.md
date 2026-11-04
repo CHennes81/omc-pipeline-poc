@@ -1,0 +1,99 @@
+# OMC Asset Metadata Matrix
+
+> **Status:** Phase A implemented and validated (2026-11-03). Phase B (structural cleanup) not started.
+> **Vocabulary:** MovieLabs Ontology for Media Creation, **OMC-JSON v2.8** (schema file `OMC-JSON-v2.8.schema.json`, changelog "2.8.1 update for 2/4/2026").
+> **Spec copy:** the complete spec is vendored, unmodified, at `Documentation/OMC-Spec/MovieLabs-OMC-JSON-v2.8.1/` (see its `SOURCE.md`). **[V]** below = read from that copy; **[S]** = external source (linked at the end); **[P]** = our design decision or convention; **[?]** = open.
+
+## 1. What this is
+
+Each row in `versions` carries an OMC-JSON `Asset` in `omc_json`: the asset's **structure** (`AssetSC`, "what it is"), its **function** (`assetFC`, "what it is used for"), and a little **provenance** ("how it got here"). The relational tables remain the queryable spine; the JSON is the interoperable record. Vendor-friendly names are a UI concern; JSON keys are always OMC names.
+
+**Validation:** every payload is run through the **official MovieLabs OMC Validator** (web: `https://omc-validator.mc.movielabs.com/`, v2.8.0.8 at time of writing; also a Docker image `movielabs/omc-validator`). It accepts a `.json` file containing either one entity or an **array** of entities, so all 112 payloads go in one upload. Current status: **all 112 pass, no warnings.** The validator was driven from Chrome by Claude (file upload, read result); a human can do the same by hand. We deliberately do **not** maintain our own validator.
+
+## 2. Pipeline modelled (simplified)
+
+`Camera Raw → Debayered Camera Master → Dailies Proxy → Edit Export` (+ rework revisions), then Turnover and Archive packages. Stage names in the database are still `CAMERA_ORIGINAL`, `HDE_MASTER`, `DAILIES_PROXY`, `EDIT_EXPORT`.
+
+**About "HDE":** HDE is **High Density Encoding**, a CODEX/ARRI **lossless compression of ARRIRAW** (`.arx` for Mini LF); it stays raw and unviewable. [S] It is _not_ an industry term for a debayered master. The row we call `HDE_MASTER` is, in the data, a **debayered, viewable camera master**, so the stage name is misleading. Renaming (e.g. `CAMERA_MASTER`; event `HDE_TRANSCODE` → a debayer/transcode name) is a **Phase B** item **[?]**.
+
+**Continuous camera-to-cloud flow [P]:** raw lands in cloud storage, which automatically triggers the debayer/master transcode, which triggers the dailies transcode; 18–33 minutes from take to daily (see §6). Generic tool names: `Cloud Auto-Debayer & Master Transcode`, `Cloud Auto-Dailies Transcode`. Industry vocabulary used: _camera-to-cloud (C2C)_, _original camera files (OCF)_, _debayer_, _transcode_, _proxy_, _dailies_ ([Frame.io C2C guide](https://blog.frame.io/2021/02/11/frameio-c2c-technical-guide/)). The user's term "continuous confirm" was interpreted as this C2C / continuous-ingest flow **[?]**.
+
+## 3. What each stage carries
+
+| OMC path                                   | Camera Raw (`CAMERA_ORIGINAL`)                                            | Camera Master (`HDE_MASTER`)          | Dailies Proxy                | Edit Export (and reworks)                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------- | ---------------------------- | --------------------------------------------------------- |
+| `assetFC.functionalType`                   | `capture.ocf` [V]                                                         | `shot` [V]                            | `proxy.daily` [V]            | `shot.editorial` [V]                                      |
+| `AssetSC.structuralType`                   | `digital.movingImage`                                                     | `digital.movingImage`                 | `digital.movingImage`        | `digital.movingImage`                                     |
+| `structuralProperties.codec`               | ARRIRAW                                                                   | ProRes 422 HQ                         | H.264                        | ProRes 422                                                |
+| `structuralProperties.dimensions`          | 3840 × 2160 px (UHD)                                                      | 3840 × 2160 px                        | 1920 × 1080 px (Full HD)     | 3840 × 2160 px                                            |
+| `structuralProperties.fileDetails`         | `.mxf`, `application/mxf`                                                 | `.mov`, `video/quicktime`             | `.mp4`, `video/mp4`          | `.mov`, `video/quicktime`                                 |
+| `customData.value.frameRate` / `container` | 24 / MXF                                                                  | 24 / MOV                              | 24 / MP4                     | 24 / MOV                                                  |
+| `customData.value.colorSpace`              | ARRI LogC3 [S]                                                            | ARRI LogC3 [S]                        | Rec.709 [P]                  | Rec.709 [P]                                               |
+| `customData.value.functionalTypeDetail`    | —                                                                         | `video.debayered` [P]                 | —                            | —                                                         |
+| `functionalProperties.cameraMetadata`      | make, model, serial, EI, rates, frame size, **reelName**, timecode in/out | —                                     | —                            | —                                                         |
+| `functionalProperties.lensMetadata`        | ARRI Signature Prime 35/T1.8, 35 mm, T2.8                                 | —                                     | —                            | —                                                         |
+| `functionalProperties.timing`              | — (timecode is in `cameraMetadata`)                                       | source in/out, duration               | source in/out, duration      | source in/out, duration                                   |
+| `AssetSC.software`                         | —                                                                         | Cloud Auto-Debayer & Master Transcode | Cloud Auto-Dailies Transcode | Avid Media Composer                                       |
+| `provenance.createdOn`                     | ✓ (full timestamp)                                                        | ✓                                     | ✓                            | ✓ (+ `reason` on reworks)                                 |
+| `version.DerivationOf`                     | root                                                                      | → Camera Raw                          | → Camera Master              | → Dailies Proxy (reworks: `RevisionOf` → original export) |
+
+**Notes**
+
+- **Camera facts live once, on the raw** (camera, lens, reel, serial, timecode). Later stages reach them by traversal, e.g. "what camera shot this daily?" is a lineage query. [P]
+- **Structural facts are stored on every asset even when equal to the parent's** (frame rate, dimensions, codec): they are facts about _that essence_, not redundancy. [P]
+- **No native OMC slot** exists for frame rate, container, or video bitrate (verified against the full schema [V]), hence `customData` (an array of `{domain, namespace, schema, value}` [V]). Video **bitrate is deliberately omitted**: it is variable and I found no authoritative dailies/edit spec to cite.
+- **Colour space:** camera master stays in log with no look baked in (ARRI publishes LogC3 viewing LUTs for OCF; practitioners keep masters in log and apply Rec.709 as a viewing transform) [S]. Dailies/edit export in Rec.709 is **convention, not a verified spec value** [P].
+- **ProRes 422 HQ** is 10-bit 4:2:2, rated by Apple at about 220 Mbps at 1920×1080/29.97; Apple does not publish a UHD figure (third-party estimates ≈707 Mbps at UHD/24) [S]. Chosen for the master because it is a high-quality, widely used mastering codec; **the seed's choice is carried over, not independently confirmed as typical** [?].
+- **Lineage caveat [?]:** the edit export is derived from the (1080p) dailies in our 1→1 chain, yet is 4K. In real workflows editorial cuts with proxies and then **conforms back to the camera masters**. Fine as a simplification (multi-input is out of scope), worth knowing as a talking point.
+- **Actors vs automation [?]:** the `HDE_TRANSCODE` event still lists actor "DIT" although the step is now automated; left unchanged pending your call.
+
+## 4. Camera facts verified (ALEXA Mini LF)
+
+ARRIRAW recording modes from ARRI's own format sheet include **4.5K LF 3:2 Open Gate 4448×3096 (≤40 fps)** and **3.8K LF 16:9 UHD 3840×2160 (≤60 fps)**, ARRIRAW or ProRes 422 HQ/4444/4444 XQ. [S] Mini LF records **LogC3** (LogC4 is the ALEXA 35). [S] Master Primes are Super 35 lenses (image circle ≈27–31 mm) and would vignette on the 36.7 × 25.54 mm sensor; **ARRI Signature Primes cover up to 46 mm** and are designed for the LF/Mini LF, so the seed's lens is now Signature Prime 35/T1.8. [S] 24 fps is the cinema standard (29.97 is the NTSC video rate).
+
+## 5. OMC schema quirks found while validating
+
+| Quirk                                                                                                                                                                                                                                                  | Handling                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Embedded `AssetSC` is validated as its own entity and **needs its own `schemaVersion`**.                                                                                                                                                               | Added.                                                                                                    |
+| `software` is an **array** of objects.                                                                                                                                                                                                                 | `[{softwareName: …}]`.                                                                                    |
+| `instanceInfo.createdOn` is `oneOf(date, dateTime)` and the schema's **`date` pattern is unanchored**, so a full timestamp matches both alternatives and fails `oneOf` (a plain date passes). Looks like a schema defect worth reporting to MovieLabs. | Dropped `instanceInfo`; full timestamps go in **`provenance.createdOn`**, which is typed `dateTime` only. |
+| `functionalType` is a **controlled-values hint, not a hard enum**; non-listed values pass schema validation but produce a validator **V3 "Needs Your Attention"** warning (e.g. `video.debayered`, `master`).                                          | Use controlled `shot`; keep the descriptive term in `customData`.                                         |
+| `Task` and `Infrastructure` are **placeholders** in v2.8 (details in later revisions).                                                                                                                                                                 | Not modelled.                                                                                             |
+| OMC has **no standalone edge object**: a derived asset points back at its source (`DerivationOf` / `RevisionOf`).                                                                                                                                      | Matches the property-graph "edge attributes" idea via `provenance` + `software`.                          |
+| SQLAlchemy `text()` reads a JSON `:24` as a bind parameter.                                                                                                                                                                                            | Numeric-looking `customData` values are stored as strings.                                                |
+
+## 6. Timeline model (seed)
+
+Production in US Pacific (Jan = UTC-8), stored as UTC; the app shows browser-local time. Shoot days keep their original schedule, read as Pacific clock time, jittered by minutes **and seconds**; **no timestamp is on an exact hour** and takes stay chronological. Per take: raw upload completes 1–4 min after the take → debayer/master **+9–16 min** → dailies **+7–14 min** (capture→daily **18.4–32.5 min, mean 25.3**). Edit exports land 2–5 days later in Pacific business hours; reworks 1–3 days after the export they revise; turnover and archive are single deliveries (members added seconds apart; archive hours after turnover). Deterministic and re-runnable (`scripts/rewrite_seed_timeline.py`, seeded per shot).
+
+## 7. How the seed is maintained
+
+- **`db/seed.sql` is the source of truth.** `scripts/generate_seed.py` is **stale** (32 shots vs the seed's 28; JSON only on raw assets) and is not used. Bringing it back in sync is a later item.
+- `scripts/rewrite_seed_timeline.py` rewrites all timestamps and the automated-step tool names (run first, `--check` to verify only).
+- `scripts/rewrite_seed_omc_json.py` rebuilds `versions.omc_json` from the seed rows (`--emit PATH` writes a validator-ready array without touching the seed; `--write` updates `db/seed.sql`). Both scripts are idempotent.
+- Reload with `POST /api/import/seed {"mode":"reset_and_seed"}`.
+- Re-validate by emitting/extracting the payloads and uploading to the official validator.
+
+## 8. Phase B (not started) — structural cleanup
+
+1. Drop `versions.codec / container / fps / timecode_in / timecode_out / bitrate` and generate them from `omc_json` (~39 code references: ask templates, API schemas, UI tables, audit cards).
+2. Decide on `assets.reel_or_roll / camera_serial / clip_name` (now in `cameraMetadata` / `fileDetails`).
+3. **Keep** `derived_from_version_id` and `version_lineage` (fast SQL traversal; the graph-DB argument does not apply here) and add a test that they agree with `version.DerivationOf`. Deliberate exception to "no redundancy".
+4. Rename `HDE_MASTER` / `HDE_TRANSCODE` (see §2); review automated-step actors.
+5. Friendly-name labels in the Inspector Overview over OMC keys (a talking point: vendor names in the UI, OMC in the JSON).
+6. Out of scope by decision: audio, rights/legal, multiple inputs per asset, Task/Infrastructure, OMC JSON for packages.
+
+## Sources
+
+Vendored spec: `Documentation/OMC-Spec/MovieLabs-OMC-JSON-v2.8.1/` (upstream https://github.com/MovieLabs/OMC, commit `dd04729`).
+
+- OMC v2.8 news: https://movielabs.com/news/movielabs-releases-ontology-for-media-creation-v2-8/ · Validator: https://omc-validator.mc.movielabs.com/ · Docker: https://hub.docker.com/r/movielabs/omc-validator
+- ARRI HDE: https://www.arri.com/en/learn-help/learn-help-camera-system/pre-postproduction/file-formats-data-handling/high-density-encoding-hde · SMPTE RDD 51 (HDE): https://pub.smpte.org/doc/rdd51/20200409-pub/rdd51-2020.pdf
+- ALEXA Mini LF recording formats (ARRI): https://www.Arri.com/resource/blob/306446/d7bf94ecd6bc57c4b430b360b7cdc7e6/alexa-mini-lf-recording-formats-sheet-din-a4-size-pdf-data.pdf
+- LogC3 vs LogC4 (ARRI): https://www.Arri.com/resource/blob/359512/56ec83a18dbcb2f147dd1498b90115f1/arri-mixing-arri-logc3-and-logc4-on-set-guideline-data.pdf · LogC3 LUT naming: https://www.arri.com/resource/blob/294602/99cf69084be7f6638181660483d3e39d/arri-lut-naming-convention-logc4-and-logc3-guideline-en-data.pdf
+- ARRI Signature Primes (46 mm image circle): https://www.arri.com/en/company/press/press-releases-2020/the-full-range-of-arri-signature-prime-lenses-are-now-available-and-shipping
+- Apple ProRes white paper: https://www.apple.com/euro/final-cut-pro/f/generic/docs/Apple_ProRes_White_Paper.pdf
+- Frame.io C2C: https://blog.frame.io/2021/02/11/frameio-c2c-technical-guide/ · https://help.frame.io/en/articles/6079079-c2c-complete-proxy-workflow-guide
+
+_Limits:_ Rec.709 for dailies/edit export and the absence of a dailies/edit-export spec are conventions, not verified standards. The OMC ontology PDFs (conceptual spec) are not vendored; the JSON spec is complete.

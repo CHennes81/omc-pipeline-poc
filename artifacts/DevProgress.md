@@ -1263,3 +1263,26 @@ When users asked questions like "What is the latest camera original?" (without s
 - Max 1 clarification cycle (Appendix G)
 - Deterministic execution only (no dynamic SQL)
 - All execution through registered intent templates
+
+---
+
+## Seed data – validated OMC-JSON on all assets, realistic timeline (2026-11-03)
+
+**Goal:** every asset version carries a complete OMC-JSON payload for its stage that passes the official MovieLabs OMC Validator; seed timestamps model a continuous camera-to-cloud flow.
+
+**Findings:**
+
+- `db/seed.sql` (not `scripts/generate_seed.py`, which is stale) is the source of truth; PR #8 had already added OMC-shaped JSON to all 112 versions.
+- Official validator (v2.8.0.8) accepts an array file; baseline of the existing seed passed. New payloads initially failed on: embedded `AssetSC` missing `schemaVersion`, `software` not an array, `instanceInfo.createdOn` (`oneOf` date/dateTime with an unanchored date pattern). `video.debayered` is not a controlled `functionalType` (V3 warning) so the master uses `shot` with the detail in `customData`.
+- Existing seed data corrected: Mini LF records LogC3 (not LogC4); Master Prime lens replaced with ARRI Signature Prime 35/T1.8 (large-format coverage); camera original is the ARRIRAW 3.8K LF 16:9 UHD mode (3840x2160).
+
+**Changes:**
+
+- `db/seed.sql` – `versions.omc_json` rebuilt for all 112 rows (AssetSC, assetFC, provenance, DerivationOf/RevisionOf, software, customData); all timestamps rewritten (no exact-hour times; capture-to-daily 18-33 min); automated-step tool names updated.
+- `scripts/rewrite_seed_omc_json.py`, `scripts/rewrite_seed_timeline.py` – **New.** Idempotent seed rewriters.
+- `Documentation/OMC-Asset-Metadata-Matrix.md` – **New.** Design, per-stage matrix, schema quirks, timeline model, Phase B list.
+- `Documentation/OMC-Spec/MovieLabs-OMC-JSON-v2.8.1/` – **New.** Unmodified vendored OMC-JSON v2.8.1 spec (Apache-2.0); `.prettierignore` excludes it.
+
+**Verification:** all 112 payloads extracted from `db/seed.sql` pass the official validator with no warnings; local database reseeded; Shot Detail and Inspector show the new data.
+
+**Not changed (Phase B):** relational columns duplicating JSON, `HDE_MASTER` / `HDE_TRANSCODE` naming, API/UI code.
