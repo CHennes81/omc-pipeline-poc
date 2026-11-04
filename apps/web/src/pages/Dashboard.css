@@ -433,8 +433,37 @@ button.stage-pill:focus-visible {
 }
 
 button.stage-pill[aria-pressed='true'] {
-  background: rgba(74, 158, 255, 0.12);
-  border-color: var(--dashboard-accent);
+  background: color-mix(in srgb, var(--pill-color, var(--dashboard-accent)) 14%, transparent);
+  border-color: var(--pill-color, var(--dashboard-accent));
+}
+
+/* Each tile's own colour, used for its selected outline */
+.stage-pill[data-stage='ALL'] {
+  --pill-color: var(--dashboard-warning);
+}
+
+.stage-pill[data-stage='CAPTURE'] {
+  --pill-color: var(--stage-capture);
+}
+
+.stage-pill[data-stage='OFFLOAD'] {
+  --pill-color: var(--stage-offload);
+}
+
+.stage-pill[data-stage='DAILIES'] {
+  --pill-color: var(--stage-dailies);
+}
+
+.stage-pill[data-stage='EDIT_EXPORT'] {
+  --pill-color: var(--stage-edit-export);
+}
+
+.stage-pill[data-stage='TURNOVER'] {
+  --pill-color: var(--stage-turnover);
+}
+
+.stage-pill[data-stage='ARCHIVE'] {
+  --pill-color: var(--stage-archive);
 }
 
 button.stage-pill[aria-pressed='true'] .stage-pill-label {
