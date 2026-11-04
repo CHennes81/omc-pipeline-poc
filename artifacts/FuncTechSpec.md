@@ -135,7 +135,7 @@ Real DAM/MAM systems typically treat the **internal ID + metadata** as authorita
 You may create a small number of “derived” files (e.g., lower bitrate proxies) using HandBrake to increase demo credibility.
 
 - The app does **not** perform transcoding in Phase 1.
-- If you create derived files, we will set `storage_uri` to point at them and set `codec/container/bitrate` fields accordingly.
+- If you create derived files, we will set `storage_uri` to point at them and record `codec` / `container` in the version's OMC-JSON payload accordingly (the relational columns were dropped in Phase B; see `Documentation/OMC-Asset-Metadata-Matrix.md` §8).
 
 ### 5.4 Optional (Phase 1.5 / Phase 2): Chroma
 
@@ -172,8 +172,8 @@ You may create a small number of “derived” files (e.g., lower bitrate proxie
 
 We model only these concepts:
 
-- **Identity**: UUID PKs + external IDs (`clip_name`, `reel_or_roll`, `camera_serial`).
-- **Relink keys**: fps + timecode_in/out.
+- **Identity**: UUID PKs + external IDs (`clip_name`, `reel_or_roll`, `camera_serial`, carried in the OMC-JSON payload, not as columns).
+- **Relink keys**: fps + timecode_in/out (read from the OMC-JSON payload).
 - **Provenance**: `version_lineage` edges.
 - **Deliveries**: packages + membership.
 - **Auditability**: events with actor and tool details.

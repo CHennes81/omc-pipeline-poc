@@ -5,6 +5,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 from app.database import Base
+from app import omc_fields
 
 
 class Production(Base):
@@ -38,9 +39,6 @@ class Asset(Base):
     shot_id = Column(UUID(as_uuid=True), ForeignKey("shots.id"), nullable=False)
     production_id = Column(UUID(as_uuid=True), ForeignKey("productions.id"), nullable=False)
     asset_type = Column(String(50), nullable=False)
-    clip_name = Column(String(255))
-    reel_or_roll = Column(String(50))
-    camera_serial = Column(String(100))
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -56,12 +54,6 @@ class Version(Base):
     version_type = Column(String(50), nullable=False)
     derived_from_version_id = Column(UUID(as_uuid=True), ForeignKey("versions.id"))
     storage_uri = Column(Text, nullable=False)
-    codec = Column(String(50))
-    container = Column(String(50))
-    bitrate = Column(Integer)
-    fps = Column(Numeric(10, 2))
-    timecode_in = Column(String(20))
-    timecode_out = Column(String(20))
     omc_json = Column(JSONB)
     creative_context = Column(JSONB)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -69,6 +61,13 @@ class Version(Base):
 
     asset = relationship("Asset", backref="versions")
     derived_from = relationship("Version", remote_side=[id], backref="derived_versions")
+
+    # Media attributes live only in omc_json (Phase B); these read-only views keep the API shape unchanged.
+    codec = property(lambda self: omc_fields.codec(self.omc_json))
+    container = property(lambda self: omc_fields.container(self.omc_json))
+    fps = property(lambda self: omc_fields.fps(self.omc_json))
+    timecode_in = property(lambda self: omc_fields.timecode_in(self.omc_json))
+    timecode_out = property(lambda self: omc_fields.timecode_out(self.omc_json))
 
 
 class VersionLineage(Base):

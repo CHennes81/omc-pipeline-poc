@@ -4,11 +4,16 @@ from sqlalchemy import text
 from typing import Dict, Any, List
 from uuid import UUID
 
+from app.omc_fields import (
+    SQL_CODEC, SQL_FPS, SQL_TIMECODE_IN, SQL_TIMECODE_OUT, SQL_CLIP_NAME, SQL_REEL,
+)
+
 
 def latest_camera_original(db: Session, shot_code: str, production_code: str) -> Dict[str, Any]:
     """Template: latest_camera_original(shot_code)"""
-    query = text("""
-        SELECT v.id, v.version_type, v.storage_uri, v.codec, v.fps, v.timecode_in, v.timecode_out, v.created_at
+    query = text(f"""
+        SELECT v.id, v.version_type, v.storage_uri, {SQL_CODEC} AS codec, {SQL_FPS} AS fps,
+               {SQL_TIMECODE_IN} AS timecode_in, {SQL_TIMECODE_OUT} AS timecode_out, v.created_at
         FROM versions v
         JOIN assets a ON v.asset_id = a.id
         JOIN shots s ON a.shot_id = s.id
@@ -162,8 +167,8 @@ def shots_ready_for_turnover_and_missing(db: Session, production_code: str) -> D
 
 def package_members(db: Session, package_id: str) -> Dict[str, Any]:
     """Template: package_members(package_id)"""
-    query = text("""
-        SELECT v.id, v.version_type, v.storage_uri, v.codec, v.fps, v.created_at
+    query = text(f"""
+        SELECT v.id, v.version_type, v.storage_uri, {SQL_CODEC} AS codec, {SQL_FPS} AS fps, v.created_at
         FROM versions v
         JOIN package_members pm ON v.id = pm.version_id
         WHERE pm.package_id = :package_id::uuid
@@ -185,8 +190,9 @@ def package_members(db: Session, package_id: str) -> Dict[str, Any]:
 
 def source_relink_keys(db: Session, shot_code: str, production_code: str) -> Dict[str, Any]:
     """Template: source_relink_keys(shot_code)"""
-    query = text("""
-        SELECT v.id, v.version_type, v.fps, v.timecode_in, v.timecode_out, a.clip_name, a.reel_or_roll
+    query = text(f"""
+        SELECT v.id, v.version_type, {SQL_FPS} AS fps, {SQL_TIMECODE_IN} AS timecode_in,
+               {SQL_TIMECODE_OUT} AS timecode_out, {SQL_CLIP_NAME} AS clip_name, {SQL_REEL} AS reel_or_roll
         FROM versions v
         JOIN assets a ON v.asset_id = a.id
         JOIN shots s ON a.shot_id = s.id
@@ -221,9 +227,9 @@ def source_relink_keys(db: Session, shot_code: str, production_code: str) -> Dic
 
 def latest_versions_by_type(db: Session, shot_code: str, production_code: str) -> Dict[str, Any]:
     """Template: latest_versions_by_type(shot_code)"""
-    query = text("""
+    query = text(f"""
         SELECT DISTINCT ON (v.version_type)
-            v.version_type, v.id, v.storage_uri, v.codec, v.fps, v.created_at
+            v.version_type, v.id, v.storage_uri, {SQL_CODEC} AS codec, {SQL_FPS} AS fps, v.created_at
         FROM versions v
         JOIN assets a ON v.asset_id = a.id
         JOIN shots s ON a.shot_id = s.id

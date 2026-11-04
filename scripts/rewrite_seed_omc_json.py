@@ -133,6 +133,33 @@ def hhmmss_ff_duration(tc_in, tc_out):
 MEDIA_TYPE = {"mxf": "application/mxf", "mov": "video/quicktime", "mp4": "video/mp4"}
 
 
+def media_inputs(v, asset):
+    """Values the payload needs that used to live in relational columns.
+
+    Phase A seeds carried them as columns (versions.codec/container/timecode_in/timecode_out, assets.clip_name/
+    reel_or_roll/camera_serial). Phase B dropped those columns: the OMC JSON is now the only home, so when the
+    columns are absent the values are read back from the version's existing payload (idempotent rewrite).
+    """
+    if "codec" in v:
+        return {
+            "codec": v["codec"], "container": v["container"],
+            "tc_in": v["timecode_in"], "tc_out": v["timecode_out"],
+            "clip_name": asset["clip_name"], "reel": asset["reel_or_roll"], "serial": asset["camera_serial"],
+        }
+    old = json.loads(v["omc_json"])
+    sc = old["AssetSC"]
+    fprops = old["assetFC"]["functionalProperties"]
+    custom = sc["customData"][0]["value"]
+    cam = fprops.get("cameraMetadata") or {}
+    timing = fprops.get("timing") or {}
+    return {
+        "codec": sc["structuralProperties"]["codec"], "container": custom["container"],
+        "tc_in": cam.get("timecodeStart") or timing["sourceStart"],
+        "tc_out": cam.get("timecodeEnd") or timing["sourceEnd"],
+        "clip_name": custom.get("clipName"), "reel": cam.get("reelName"), "serial": cam.get("cameraSerialNumber"),
+    }
+
+
 def build(v, ctx):
     vt = v["version_type"]
     asset = ctx["assets"][v["asset_id"]]
@@ -142,6 +169,7 @@ def build(v, ctx):
     ext = fname.rsplit(".", 1)[-1].lower()
     is_rework = bool(v.get("creative_context")) and vt == "EDIT_EXPORT" and fname.endswith("_v2.mov")
     ev = ctx["events"].get(v["id"], {})
+    mi = media_inputs(v, asset)
 
     title = {
         "CAMERA_ORIGINAL": ("Camera Raw", "Camera-original raw capture (ARRIRAW) as recorded by the camera (POC example)."),
@@ -163,15 +191,15 @@ def build(v, ctx):
         fprops["cameraMetadata"] = {
             "cameraMake": "ARRI",
             "cameraModel": "ALEXA Mini LF",
-            "cameraSerialNumber": asset["camera_serial"],
+            "cameraSerialNumber": mi["serial"],
             "exposureIndex": "800",
             "captureRate": str(FPS),
             "playbackRate": str(FPS),
             "frameWidth": FULL_RES[0],
             "frameHeight": FULL_RES[1],
-            "reelName": asset["reel_or_roll"],
-            "timecodeStart": v["timecode_in"],
-            "timecodeEnd": v["timecode_out"],
+            "reelName": mi["reel"],
+            "timecodeStart": mi["tc_in"],
+            "timecodeEnd": mi["tc_out"],
         }
         fprops["lensMetadata"] = {
             "lensMake": "ARRI",
@@ -181,16 +209,18 @@ def build(v, ctx):
         }
     else:
         fprops["timing"] = {
-            "sourceStart": v["timecode_in"],
-            "sourceEnd": v["timecode_out"],
-            "duration": hhmmss_ff_duration(v["timecode_in"], v["timecode_out"]),
+            "sourceStart": mi["tc_in"],
+            "sourceEnd": mi["tc_out"],
+            "duration": hhmmss_ff_duration(mi["tc_in"], mi["tc_out"]),
         }
 
     w, h = DAILIES_RES if vt == "DAILIES_PROXY" else FULL_RES
     # String, not number: a JSON `:24` in the SQL text is read by SQLAlchemy's text() as a bind parameter.
-    sc_custom = {"frameRate": str(FPS), "container": v["container"]}
+    sc_custom = {"frameRate": str(FPS), "container": mi["container"]}
     if vt == "CAMERA_ORIGINAL":
         sc_custom["colorSpace"] = "ARRI LogC3"
+        # OMC v2.8 has no clip-name field (cameraLabel is a camera id): the camera's original clip name goes here.
+        sc_custom["clipName"] = mi["clip_name"]
     elif vt == "CAMERA_MASTER":
         # Camera master stays in log (no look baked in); this is the debayered form of the raw.
         sc_custom["colorSpace"] = "ARRI LogC3"
@@ -205,7 +235,7 @@ def build(v, ctx):
         "identifier": [{"identifierScope": SCOPE, "identifierValue": f"assetsc/{v['id']}"}],
         "structuralType": "digital.movingImage",
         "structuralProperties": {
-            "codec": v["codec"],
+            "codec": mi["codec"],
             "dimensions": {"width": f"{w}px", "height": f"{h}px"},
             "fileDetails": {
                 "fileName": fname,
