@@ -36,9 +36,10 @@ export ASK_DEFAULT_MODE=nl
 # Enable structured NL trace logging (DEV ONLY)
 export ASK_NL_TRACE=true
 
-# (Optional but recommended for determinism)
-export ASK_NL_MODEL=gpt-4o-mini
-export ASK_NL_TEMPERATURE=0.0
+# LLM provider + model (see apps/api/app/llm). Needs ANTHROPIC_API_KEY in apps/api/.env.
+# To demo with a stronger model, change LLM_MODEL to claude-sonnet-5-5.
+export LLM_PROVIDER=anthropic
+export LLM_MODEL=claude-haiku-5-5
 
 # Confidence thresholds (align with Appendix G)
 export ASK_NL_CONFIDENCE_EXECUTE_MIN=0.80

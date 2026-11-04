@@ -395,7 +395,7 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
     All exceptions are caught and mapped to one of three user-facing error categories:
     - unanswerable: routing failures, unsupported questions
     - data_retrieval_failure: database/SQL errors, template execution errors
-    - remote_services_unavailable: OpenAI API errors, network errors
+    - remote_services_unavailable: LLM provider errors, network errors
     """
     from app import nl_router, ask_executor
 
@@ -444,7 +444,7 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
         # Re-raise HTTPExceptions (already logged and formatted by inner handlers)
         raise
     except (ConnectionError, TimeoutError, OSError) as e:
-        # Network/connection errors (treat OpenAI failures as opaque external dependency)
+        # Network/connection errors (treat LLM provider failures as opaque external dependency)
         error_code = "remote_service_error"
         error_category = ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE
         exception_message = str(e)
@@ -498,7 +498,7 @@ def ask_question(request: schemas.AskRequest, db: Session = Depends(get_db)):
             }
         )
     except Exception as e:
-        # Catch-all for any other unexpected exceptions (including OpenAI SDK exceptions)
+        # Catch-all for any other unexpected exceptions
         error_code = "unexpected_error"
         error_category = ASK_ERROR_CATEGORY_DATA_RETRIEVAL_FAILURE
         exception_message = str(e)
@@ -843,8 +843,9 @@ def _handle_nl_ask(request: schemas.AskRequest, db: Session, context: dict):
     else:  # ERROR
         # Map to internal error
         error_code = routing_result.error_code or "routing_error"
-        # Timeout errors map to remote_services_unavailable
-        if error_code == "llm_timeout":
+        # LLM timeouts, provider failures (auth/quota/rate limit/outage) and unusable replies
+        # all map to remote_services_unavailable; the detail is in the server log.
+        if error_code in ("llm_timeout", "llm_unavailable", "llm_bad_response"):
             error_category = ASK_ERROR_CATEGORY_REMOTE_SERVICES_UNAVAILABLE
             http_status = status.HTTP_503_SERVICE_UNAVAILABLE
         else:
