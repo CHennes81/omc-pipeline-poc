@@ -96,7 +96,11 @@ function toKeyValueEntries(obj: unknown): [string, unknown][] {
   if (obj === null || obj === undefined) return [];
   if (typeof obj !== 'object') return [];
   if (Array.isArray(obj)) return [['[array]', `Array(${obj.length})`]];
-  return Object.entries(obj).filter(([, v]) => v !== null && v !== undefined && v !== '');
+  // Plain nested objects (e.g. omc_json) would only render as "[object]"; the Raw tab shows them in full.
+  return Object.entries(obj).filter(
+    ([, v]) =>
+      v !== null && v !== undefined && v !== '' && !(typeof v === 'object' && !Array.isArray(v)),
+  );
 }
 
 function formatOverviewValue(value: unknown): string {

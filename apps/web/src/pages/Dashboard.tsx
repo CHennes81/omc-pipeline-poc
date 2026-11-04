@@ -75,7 +75,14 @@ export function Dashboard() {
   };
 
   // Filter out NEW stage from display (but keep it in computation)
-  const displayStages = ['CAPTURE', 'OFFLOAD', 'DAILIES', 'EDIT_EXPORT', 'TURNOVER', 'ARCHIVE'];
+  const displayStages = [
+    'CAPTURE',
+    'CAMERA_MASTER',
+    'DAILIES',
+    'EDIT_EXPORT',
+    'TURNOVER',
+    'ARCHIVE',
+  ];
 
   // 'ALL' = the default "All Pending" view; otherwise a single stage filter.
   const ALL = 'ALL';
@@ -109,9 +116,9 @@ export function Dashboard() {
       case 'EDIT_EXPORT':
         return 'Ready for turnover';
       case 'CAPTURE':
-        return 'Captured, awaiting offload';
-      case 'OFFLOAD':
-        return 'Offloaded, awaiting dailies';
+        return 'Captured, awaiting camera master';
+      case 'CAMERA_MASTER':
+        return 'Camera master ready, awaiting dailies';
       case 'TURNOVER':
         return 'Turned over, awaiting archive';
       case 'ARCHIVE':

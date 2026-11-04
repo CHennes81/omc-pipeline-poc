@@ -17,7 +17,6 @@ WITH shot_events AS (
                  WHEN 'EDIT_EXPORT_CREATED' THEN 4
                  WHEN 'DAILIES_PUBLISHED' THEN 3
                  WHEN 'DEBAYER_TRANSCODE' THEN 2
-                 WHEN 'OFFLOAD' THEN 2
                  WHEN 'CAPTURE' THEN 1
                  ELSE 0
              END DESC,
@@ -35,8 +34,7 @@ SELECT
             WHEN 'TURNOVER_DELIVERED' THEN 'TURNOVER'
             WHEN 'EDIT_EXPORT_CREATED' THEN 'EDIT_EXPORT'
             WHEN 'DAILIES_PUBLISHED' THEN 'DAILIES'
-            WHEN 'DEBAYER_TRANSCODE' THEN 'OFFLOAD'
-            WHEN 'OFFLOAD' THEN 'OFFLOAD'
+            WHEN 'DEBAYER_TRANSCODE' THEN 'CAMERA_MASTER'
             WHEN 'CAPTURE' THEN 'CAPTURE'
             ELSE 'NEW'
         END,

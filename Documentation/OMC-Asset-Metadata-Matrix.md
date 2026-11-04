@@ -1,6 +1,6 @@
 # OMC Asset Metadata Matrix
 
-> **Status:** Phase A (validated OMC-JSON, realistic timeline) and Phase B part 1 (renames, automated actor, lineage drift test) implemented and validated (2026-11-03). Remaining Phase B: dropping the duplicated columns and the API/UI changes that follow (§8).
+> **Status:** Phase A (validated OMC-JSON, realistic timeline) and Phase B part 1 (renames, automated actor, `OFFLOAD` → `CAMERA_MASTER` stage, lineage drift test) implemented and validated (2026-11-03). **Dropping the duplicated columns is on hold** by decision (§8).
 > **Vocabulary:** MovieLabs Ontology for Media Creation, **OMC-JSON v2.8** (schema file `OMC-JSON-v2.8.schema.json`, changelog "2.8.1 update for 2/4/2026").
 > **Spec copy:** the complete spec is vendored, unmodified, at `Documentation/OMC-Spec/MovieLabs-OMC-JSON-v2.8.1/` (see its `SOURCE.md`). **[V]** below = read from that copy; **[S]** = external source (linked at the end); **[P]** = our design decision or convention; **[?]** = open.
 
@@ -14,7 +14,7 @@ Each row in `versions` carries an OMC-JSON `Asset` in `omc_json`: the asset's **
 
 `Camera Raw → Debayered Camera Master → Dailies Proxy → Edit Export` (+ rework revisions), then Turnover and Archive packages. Version types in the database are `CAMERA_ORIGINAL`, `CAMERA_MASTER`, `DAILIES_PROXY`, `EDIT_EXPORT`.
 
-**About "HDE":** HDE is **High Density Encoding**, a CODEX/ARRI **lossless compression of ARRIRAW** (`.arx` for Mini LF); it stays raw and unviewable. [S] It is _not_ an industry term for a debayered master. The stage that was originally named `HDE_MASTER` is, in the data, a **debayered, viewable camera master**, so it was **renamed `CAMERA_MASTER`** and its event `HDE_TRANSCODE` became **`DEBAYER_TRANSCODE`** (storage paths `dam://hde_masters/` → `dam://camera_masters/`). The dashboard stage derived from that event is still labelled `OFFLOAD` **[?]**.
+**About "HDE":** HDE is **High Density Encoding**, a CODEX/ARRI **lossless compression of ARRIRAW** (`.arx` for Mini LF); it stays raw and unviewable. [S] It is _not_ an industry term for a debayered master. The stage that was originally named `HDE_MASTER` is, in the data, a **debayered, viewable camera master**, so it was **renamed `CAMERA_MASTER`** and its event `HDE_TRANSCODE` became **`DEBAYER_TRANSCODE`** (storage paths `dam://hde_masters/` → `dam://camera_masters/`). The dashboard stage derived from that event, formerly `OFFLOAD` (an on-set card-offload term), is now **`CAMERA_MASTER`**, matching the version type it produces.
 
 **Continuous camera-to-cloud flow [P]:** raw lands in cloud storage, which automatically triggers the debayer/master transcode, which triggers the dailies transcode; 18–33 minutes from take to daily (see §6). Generic tool names: `Cloud Auto-Debayer & Master Transcode`, `Cloud Auto-Dailies Transcode`. Industry vocabulary used: _camera-to-cloud (C2C)_, _original camera files (OCF)_, _debayer_, _transcode_, _proxy_, _dailies_ ([Frame.io C2C guide](https://blog.frame.io/2021/02/11/frameio-c2c-technical-guide/)). The user's term "continuous confirm" was interpreted as this C2C / continuous-ingest flow **[?]**.
 
@@ -77,11 +77,11 @@ Production in US Pacific (Jan = UTC-8), stored as UTC; the app shows browser-loc
 
 ## 8. Phase B — structural cleanup (part 1 done)
 
-1. **Next:** drop `versions.codec / container / fps / timecode_in / timecode_out / bitrate` and generate them from `omc_json` (~39 code references: ask templates, API schemas, UI tables, audit cards).
-2. Decide on `assets.reel_or_roll / camera_serial / clip_name` (now in `cameraMetadata` / `fileDetails`).
+1. **On hold:** drop `versions.codec / container / fps / timecode_in / timecode_out / bitrate` and generate them from `omc_json` (~39 code references: ask templates, API schemas, UI tables, audit cards).
+2. **Decided:** drop `assets.reel_or_roll / camera_serial / clip_name` too (now in `cameraMetadata` / `fileDetails`; not needed for fast traversal). In a graph database these would be properties on the node mirroring the JSON, which is the one reason to keep such columns. The `source_relink_keys` ask template and the audit card's Reel field would then read from the JSON (the card's Reel currently never shows data: it looks for a key that nothing supplies).
 3. **Done:** `derived_from_version_id` and `version_lineage` are **kept** (fast SQL traversal; the graph-DB argument does not apply here) and lineage is stored in both places by design. `apps/api/tests/test_seed_lineage_consistency.py` fails if the SQL parent, the `version_lineage` table, and the JSON `DerivationOf` / `RevisionOf` ever disagree (proved against a deliberately corrupted copy); `db/seed_verify.sql` has the same check for the live database.
 4. **Done:** `HDE_MASTER` → `CAMERA_MASTER`, `HDE_TRANSCODE` → `DEBAYER_TRANSCODE`, automated-step actor → `Cloud Transcode Service`. `db/views.sql` (stage view) and the local database were updated; a deployed database needs `views.sql` re-applied and a reseed.
-5. Friendly-name labels in the Inspector Overview over OMC keys (a talking point: vendor names in the UI, OMC in the JSON).
+5. Friendly-name labels in the Inspector Overview over OMC keys (a talking point: vendor names in the UI, OMC in the JSON). **Done in part:** the Overview tab no longer shows the `omc_json` row (it only rendered `[object]`); the Raw tab shows the full payload.
 6. Out of scope by decision: audio, rights/legal, multiple inputs per asset, Task/Infrastructure, OMC JSON for packages.
 
 ## Sources

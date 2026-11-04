@@ -21,7 +21,7 @@
   /* Stage colors - muted, professional */
   --stage-new: #6b7280;
   --stage-capture: #8b5cf6;
-  --stage-offload: #06b6d4;
+  --stage-camera-master: #06b6d4;
   --stage-dailies: #10b981;
   --stage-edit-export: #f482bc;
   --stage-turnover: #3b82f6;
@@ -223,8 +223,8 @@
   border-left: 3px solid var(--stage-capture);
 }
 
-.stage-pill[data-stage='OFFLOAD'] {
-  border-left: 3px solid var(--stage-offload);
+.stage-pill[data-stage='CAMERA_MASTER'] {
+  border-left: 3px solid var(--stage-camera-master);
 }
 
 .stage-pill[data-stage='DAILIES'] {
@@ -332,9 +332,9 @@
   border-color: var(--stage-capture);
 }
 
-.stage-badge[data-stage='OFFLOAD'] {
-  color: var(--stage-offload);
-  border-color: var(--stage-offload);
+.stage-badge[data-stage='CAMERA_MASTER'] {
+  color: var(--stage-camera-master);
+  border-color: var(--stage-camera-master);
 }
 
 .stage-badge[data-stage='DAILIES'] {
@@ -370,8 +370,8 @@
   border-bottom-color: var(--stage-capture);
 }
 
-.card-section[data-accent='OFFLOAD'] .card-section-header {
-  border-bottom-color: var(--stage-offload);
+.card-section[data-accent='CAMERA_MASTER'] .card-section-header {
+  border-bottom-color: var(--stage-camera-master);
 }
 
 .card-section[data-accent='DAILIES'] .card-section-header {
@@ -446,8 +446,8 @@ button.stage-pill[aria-pressed='true'] {
   --pill-color: var(--stage-capture);
 }
 
-.stage-pill[data-stage='OFFLOAD'] {
-  --pill-color: var(--stage-offload);
+.stage-pill[data-stage='CAMERA_MASTER'] {
+  --pill-color: var(--stage-camera-master);
 }
 
 .stage-pill[data-stage='DAILIES'] {

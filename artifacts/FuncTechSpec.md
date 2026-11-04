@@ -33,7 +33,7 @@ This project follows the existing control pattern used in prior repos:
 
 ## 1. One‑sentence pitch
 
-A small web app that ingests a tiny **OMC-shaped** dataset for a fictional production, builds a **deterministic lineage graph** from **CAPTURE → OFFLOAD/HDE → DAILIES → EDIT_EXPORT → TURNOVER → ARCHIVE**, and answers studio questions with **verifiable evidence** (events/versions/packages).
+A small web app that ingests a tiny **OMC-shaped** dataset for a fictional production, builds a **deterministic lineage graph** from **CAPTURE → CAMERA_MASTER → DAILIES → EDIT_EXPORT → TURNOVER → ARCHIVE**, and answers studio questions with **verifiable evidence** (events/versions/packages).
 
 ---
 
@@ -195,7 +195,7 @@ Although Phase 1 uses relational tables for core entities, we will include a few
 ### 7.1 Required event types (Phase 1)
 
 - `CAPTURE`
-- `DEBAYER_TRANSCODE` (or `OFFLOAD`)
+- `DEBAYER_TRANSCODE`
 - `DAILIES_PUBLISHED`
 - `EDIT_EXPORT_CREATED`
 - `TURNOVER_DELIVERED`
@@ -209,7 +209,7 @@ Stage is derived from most advanced completed event:
 - `TURNOVER` if `TURNOVER_DELIVERED` exists
 - `EDIT_EXPORT` if `EDIT_EXPORT_CREATED` exists
 - `DAILIES` if `DAILIES_PUBLISHED` exists
-- `OFFLOAD` if `DEBAYER_TRANSCODE` (or OFFLOAD) exists
+- `CAMERA_MASTER` if `DEBAYER_TRANSCODE` exists
 - `CAPTURE` if `CAPTURE` exists
 - else `NEW`
 
@@ -261,7 +261,7 @@ Templates:
 
 Must show:
 
-- counts of shots by stage (NEW/CAPTURE/OFFLOAD/DAILIES/EDIT_EXPORT/TURNOVER/ARCHIVE)
+- counts of shots by stage (NEW/CAPTURE/CAMERA_MASTER/DAILIES/EDIT_EXPORT/TURNOVER/ARCHIVE)
 - a “Blocked Shots” list with reason, e.g.:
   - “Has dailies but missing edit export”
   - “Has edit export but not delivered to vendor” (optional)

@@ -1304,3 +1304,16 @@ When users asked questions like "What is the latest camera original?" (without s
 **Verification:** all 112 payloads pass the official OMC Validator; live-DB integrity and drift checks return 0 violations; stage counts unchanged.
 
 **Remaining (Phase B):** drop the duplicated `versions` columns (generate from `omc_json`), decide on `assets.reel_or_roll / camera_serial / clip_name`, Inspector friendly labels.
+
+---
+
+## Stage rename OFFLOAD -> CAMERA_MASTER and Inspector overview fix (2026-11-03)
+
+**Changes:**
+
+- Shot stage `OFFLOAD` renamed `CAMERA_MASTER` (derived from the `DEBAYER_TRANSCODE` event); the unused legacy `OFFLOAD` event alias was removed from `db/views.sql`. Dashboard tile, badges and filter colours (`--stage-camera-master`), reason text, `README.md` and `artifacts/FuncTechSpec.md` updated.
+- `apps/web/src/components/InspectorDrawer.tsx` – Overview tab hides rows whose value is a plain nested object (the `omc_json` row only rendered `[object]`); the Raw tab is unchanged.
+
+**Decisions recorded (no code):** dropping duplicated columns (including `assets.reel_or_roll / camera_serial / clip_name`) remains on hold. Full timestamps are valid in `provenance.createdOn` (typed `dateTime`); the defect is only in `instanceInfo.createdOn` / `lastUpdateOn`.
+
+**Verification:** web typecheck and lint clean; live database stage counts unchanged; Dashboard and Inspector checked in the browser.

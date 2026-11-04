@@ -6,7 +6,7 @@ A proof-of-concept web application demonstrating deterministic asset lineage and
 
 This POC implements:
 
-- Deterministic pipeline modeling (CAPTURE → OFFLOAD → DAILIES → EDIT_EXPORT → TURNOVER → ARCHIVE)
+- Deterministic pipeline modeling (CAPTURE → CAMERA_MASTER → DAILIES → EDIT_EXPORT → TURNOVER → ARCHIVE)
 - Metadata-first lineage tracking with explicit `derivedFrom` relationships
 - Evidence-based query system (Ask templates)
 - Immutable event log for auditability
