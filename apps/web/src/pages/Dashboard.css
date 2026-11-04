@@ -23,7 +23,7 @@
   --stage-capture: #8b5cf6;
   --stage-offload: #06b6d4;
   --stage-dailies: #10b981;
-  --stage-edit-export: #f59e0b;
+  --stage-edit-export: #f482bc;
   --stage-turnover: #3b82f6;
   --stage-archive: #64748b;
 
@@ -357,20 +357,37 @@
   border-color: var(--stage-archive);
 }
 
-/* Blocked Shots Warning Header */
-.card-section-warning .card-section-header {
-  border-bottom-color: rgba(255, 169, 77, 0.3);
+/* Header rule tinted to match the selected stage tile */
+.card-section[data-accent] .card-section-header {
+  border-bottom-width: 2px;
 }
 
-.card-section-warning .card-section-title::before {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--dashboard-warning);
-  margin-right: var(--spacing-sm);
-  vertical-align: middle;
+.card-section[data-accent='ALL'] .card-section-header {
+  border-bottom-color: var(--dashboard-warning);
+}
+
+.card-section[data-accent='CAPTURE'] .card-section-header {
+  border-bottom-color: var(--stage-capture);
+}
+
+.card-section[data-accent='OFFLOAD'] .card-section-header {
+  border-bottom-color: var(--stage-offload);
+}
+
+.card-section[data-accent='DAILIES'] .card-section-header {
+  border-bottom-color: var(--stage-dailies);
+}
+
+.card-section[data-accent='EDIT_EXPORT'] .card-section-header {
+  border-bottom-color: var(--stage-edit-export);
+}
+
+.card-section[data-accent='TURNOVER'] .card-section-header {
+  border-bottom-color: var(--stage-turnover);
+}
+
+.card-section[data-accent='ARCHIVE'] .card-section-header {
+  border-bottom-color: var(--stage-archive);
 }
 
 /* Empty State */
@@ -400,4 +417,42 @@
   .table-container td {
     padding: var(--spacing-sm);
   }
+}
+
+/* Interactive stage filter pills (buttons) */
+button.stage-pill {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+
+button.stage-pill:focus-visible {
+  outline: 2px solid var(--dashboard-accent);
+  outline-offset: 2px;
+}
+
+button.stage-pill[aria-pressed='true'] {
+  background: rgba(74, 158, 255, 0.12);
+  border-color: var(--dashboard-accent);
+}
+
+button.stage-pill[aria-pressed='true'] .stage-pill-label {
+  color: var(--dashboard-text-primary);
+}
+
+.stage-pill[data-stage='ALL'] {
+  border-left: 3px solid var(--dashboard-warning);
+}
+
+/* Zero-count tiles are inactive */
+button.stage-pill:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.stage-pill:disabled:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--dashboard-border);
 }

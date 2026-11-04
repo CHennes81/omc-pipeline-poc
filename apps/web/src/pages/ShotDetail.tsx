@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ShotDetail, Version, Event, LineageNode } from '../api/client';
+import { shortId } from '../utils/formatting';
 import { useInspector } from '../context/inspector-context';
 import './PageStyles.css';
 
@@ -115,7 +116,7 @@ export function ShotDetailPage() {
                       }}
                       style={{ cursor: 'pointer' }}
                     >
-                      <td className="monospace">{v.id.substring(0, 8)}...</td>
+                      <td className="monospace">{shortId(v.id)}</td>
                       <td>{v.storage_uri}</td>
                       <td>{v.codec || '-'}</td>
                       <td>{v.fps || '-'}</td>
@@ -143,7 +144,7 @@ export function ShotDetailPage() {
                   </div>
                 )}
                 <div className="page-list-item">
-                  <strong>{node.version_type}</strong> ({node.version_id.substring(0, 8)}...)
+                  <strong>{node.version_type}</strong> ({shortId(node.version_id)})
                 </div>
               </div>
             ))}

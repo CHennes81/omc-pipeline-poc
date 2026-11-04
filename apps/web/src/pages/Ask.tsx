@@ -12,7 +12,7 @@ import { AnswerText } from '../components/AnswerText';
 import { VersionAuditCard } from '../components/VersionAuditCard';
 import { ShotsAuditCard } from '../components/ShotsAuditCard';
 import { AskErrorPanel } from '../components/AskErrorPanel';
-import { formatDateTime } from '../utils/formatting';
+import { formatDateTime, formatLabel } from '../utils/formatting';
 import './PageStyles.css';
 
 const TEMPLATE_QUESTIONS = [
@@ -543,7 +543,7 @@ export function AskPage() {
 
                     return (
                       <div key={key} className="audit-trail-group" style={{ marginBottom: '24px' }}>
-                        <h3>{key}</h3>
+                        <h3>{formatLabel(key)}</h3>
                         {items.length > 0 ? (
                           <div className="audit-trail-items">
                             {/* Use ShotsAuditCard for shots evidence */}

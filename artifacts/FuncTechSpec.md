@@ -874,7 +874,7 @@ NL Ask behavior MUST be controlled via environment variables to support safe rol
   - If `false`, the backend MUST NOT call the LLM router and MUST reject NL mode requests.
 - `ASK_DUAL_MODE_UI` (boolean; default `false`)
   - If `true` and NL is enabled, the UI MAY expose a “Switch mode” link.
-- `ASK_DEFAULT_MODE` (`deterministic` | `nl`; default `deterministic`)
+- `ASK_DEFAULT_MODE` (`deterministic` | `nl`; default `nl`, effective only when NL is enabled and a provider key is configured)
   - Determines which mode the Ask page starts in.
 
 #### Confidence Threshold ENVVARs (initial defaults; tunable)
