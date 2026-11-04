@@ -8,8 +8,9 @@ against each other and against the seed):
   * Python extractors, used by the ORM (`models.Version` properties) and the REST responses.
   * SQL expressions over a `versions` row aliased `v`, used by the Ask templates' raw SQL.
 
-Paths (OMC-JSON v2.8; the schema defines no frame rate / container / clip name property, so those three sit in the
-`AssetSC.customData` entry with domain "poc", namespace "plc"):
+Paths (OMC-JSON v2.8). The schema defines no frame rate, container or clip name property. Frame rate and container sit
+in the `AssetSC.customData` entry with domain "poc", namespace "plc". Clip name sits in `assetFC.functionalProperties`,
+where MovieLabs' own HSM examples put it (the validator does not check unknown keys there):
 
   codec        AssetSC.structuralProperties.codec
   container    AssetSC.customData[poc/plc].value.container
@@ -17,7 +18,7 @@ Paths (OMC-JSON v2.8; the schema defines no frame rate / container / clip name p
   timecode in  assetFC.functionalProperties.cameraMetadata.timecodeStart  (camera original)
                or assetFC.functionalProperties.timing.sourceStart         (every other stage)
   timecode out ...cameraMetadata.timecodeEnd / ...timing.sourceEnd
-  clip name    AssetSC.customData[poc/plc].value.clipName            (camera original only)
+  clip name    assetFC.functionalProperties.clipName                 (camera original only)
   reel         assetFC.functionalProperties.cameraMetadata.reelName  (camera original only)
   camera serial assetFC.functionalProperties.cameraMetadata.cameraSerialNumber (camera original only)
 """
@@ -65,7 +66,7 @@ def timecode_out(omc):
     return _get(f, "cameraMetadata", "timecodeEnd") or _get(f, "timing", "sourceEnd")
 
 
-def clip_name(omc): return _custom(omc).get("clipName")
+def clip_name(omc): return _fprops(omc).get("clipName")
 def reel(omc): return _get(_fprops(omc), "cameraMetadata", "reelName")
 def camera_serial(omc): return _get(_fprops(omc), "cameraMetadata", "cameraSerialNumber")
 
@@ -79,6 +80,6 @@ SQL_CONTAINER = f"{_CUSTOM}->>'container'"
 SQL_FPS = f"({_CUSTOM}->>'frameRate')::numeric(10,2)"
 SQL_TIMECODE_IN = f"COALESCE({_FP}->'cameraMetadata'->>'timecodeStart', {_FP}->'timing'->>'sourceStart')"
 SQL_TIMECODE_OUT = f"COALESCE({_FP}->'cameraMetadata'->>'timecodeEnd', {_FP}->'timing'->>'sourceEnd')"
-SQL_CLIP_NAME = f"{_CUSTOM}->>'clipName'"
+SQL_CLIP_NAME = f"{_FP}->>'clipName'"
 SQL_REEL = f"{_FP}->'cameraMetadata'->>'reelName'"
 SQL_CAMERA_SERIAL = f"{_FP}->'cameraMetadata'->>'cameraSerialNumber'"

@@ -156,7 +156,8 @@ def media_inputs(v, asset):
         "codec": sc["structuralProperties"]["codec"], "container": custom["container"],
         "tc_in": cam.get("timecodeStart") or timing["sourceStart"],
         "tc_out": cam.get("timecodeEnd") or timing["sourceEnd"],
-        "clip_name": custom.get("clipName"), "reel": cam.get("reelName"), "serial": cam.get("cameraSerialNumber"),
+        "clip_name": fprops.get("clipName") or custom.get("clipName"),  # customData = payloads before the move
+        "reel": cam.get("reelName"), "serial": cam.get("cameraSerialNumber"),
     }
 
 
@@ -201,6 +202,9 @@ def build(v, ctx):
             "timecodeStart": mi["tc_in"],
             "timecodeEnd": mi["tc_out"],
         }
+        # Same place MovieLabs' own HSM examples put it (assetFC.functionalProperties.clipName). Not a schema-defined
+        # property in v2.0/v2.6/v2.8; the validator does not check unknown keys here (see Matrix doc).
+        fprops["clipName"] = mi["clip_name"]
         fprops["lensMetadata"] = {
             "lensMake": "ARRI",
             "lensModel": "Signature Prime 35/T1.8",
@@ -219,8 +223,6 @@ def build(v, ctx):
     sc_custom = {"frameRate": str(FPS), "container": mi["container"]}
     if vt == "CAMERA_ORIGINAL":
         sc_custom["colorSpace"] = "ARRI LogC3"
-        # The OMC-JSON schema defines no clip-name property (cameraLabel is a camera id): the original clip name goes here.
-        sc_custom["clipName"] = mi["clip_name"]
     elif vt == "CAMERA_MASTER":
         # Camera master stays in log (no look baked in); this is the debayered form of the raw.
         sc_custom["colorSpace"] = "ARRI LogC3"

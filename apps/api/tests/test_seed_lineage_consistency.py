@@ -111,11 +111,11 @@ def test_payload_is_self_consistent():
             bad.append((v["id"], "frameRate"))
         cam = p["assetFC"]["functionalProperties"].get("cameraMetadata")
         if v["version_type"] == "CAMERA_ORIGINAL":
-            if not (cam and cam["reelName"] and cam["cameraSerialNumber"] and custom.get("clipName")):
+            if not (cam and cam["reelName"] and cam["cameraSerialNumber"] and p["assetFC"]["functionalProperties"].get("clipName")):
                 bad.append((v["id"], "camera original missing reel/serial/clipName"))
             if cam["captureRate"] != custom["frameRate"]:
                 bad.append((v["id"], "captureRate vs frameRate"))
-        elif cam is not None or "clipName" in custom:
+        elif cam is not None or "clipName" in p["assetFC"]["functionalProperties"] or "clipName" in custom:
             bad.append((v["id"], "camera-only attribute on a non-camera stage"))
     assert not bad, bad[:5]
 
